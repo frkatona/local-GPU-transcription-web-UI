@@ -1,0 +1,390 @@
+# Transcription
+# File: Adri Meeting.mp3
+# Model: small
+# Device: cuda
+# Compute type: float16
+# Language: en (probability=0.964)
+
+[00:00:00] to convert methane, you actually have to dissociate methane to methyl radical and hydrogen radical
+[00:00:04] and the small and the sort of the sacronium aids are really good at doing that because
+[00:00:10] they have a place for the hydrogen and have a place for the methyl group.
+[00:00:13] And so they actually convert rather quickly to a carbide and as such actually when they
+[00:00:17] oxidize, they only oxidize on the outside.
+[00:00:20] While the smaller species actually oxidize pretty much an oxide in the middle and maybe
+[00:00:24] later down the lines in there pretty hot, they may grab some carbon.
+[00:00:28] You get the very early days.
+[00:00:32] It makes sense to me, but we don't have the experimental evidence that it works.
+[00:00:38] That's a game that works really well.
+[00:00:40] So it may get some interesting surprises there.
+[00:00:42] Yeah, I think that would be helpful for us because if we learn, for instance, I'm not
+[00:00:49] saying this is the case, but we learn that it's unlikely that we're converting boron
+[00:00:53] carbide to, or that we're oxidizing the boron carbides.
+[00:00:57] Let's put it that way.
+[00:01:00] Then that probably tells us we're making the oxide on the way to the boron carbide instead
+[00:01:08] of intercepting it.
+[00:01:09] And that'll help us think through what kind of experiments we might want to run to measure
+[00:01:15] this.
+[00:01:16] Yeah.
+[00:01:17] Okay.
+[00:01:19] Yeah, now what could then be a good way to...
+[00:01:24] So let's get back to the basics for a second then.
+[00:01:28] So this is something where you start with your polymer precursors.
+[00:01:32] Okay.
+[00:01:33] So that's pretty much the sort of the long chain, hard to carbon with kind of a boron
+[00:01:38] side chain type sort of stuff.
+[00:01:40] Okay.
+[00:01:42] And then I guess the question is to some extent, so we could do a series of simulations where
+[00:01:48] we could start with the precursor clearly.
+[00:01:50] That's kind of trivial, but it's a nice place to start.
+[00:01:53] And that we can just do sort of partial conversions to the boron carbide and just run the simulation
+[00:02:00] and just stop it at, let's say, 10 different stages.
+[00:02:04] Yeah.
+[00:02:05] Mix it with oxygen and kind of see how that evolves.
+[00:02:08] I mean, that's a pretty nice simulation to do.
+[00:02:11] Yeah.
+[00:02:13] And then see what we get.
+[00:02:15] I mean, that's...
+[00:02:16] Yeah, I would imagine that the initial decaborane would probably...
+[00:02:20] You don't want...
+[00:02:21] I would imagine that these would be extremely oxygen sensitive.
+[00:02:24] Yeah.
+[00:02:25] I think that...
+[00:02:26] I don't even know how Rob's group handles these things.
+[00:02:30] Yeah.
+[00:02:31] When it's not in the polymer, it's pyrophoric.
+[00:02:33] Okay.
+[00:02:34] But in the polymer, for whatever reason, I don't know if it's that it's diffusion of
+[00:02:41] the oxygen is slow or wet.
+[00:02:44] But yeah.
+[00:02:46] So one could imagine that if there's any oxygen around right when you lose the hydrogens,
+[00:02:51] if you don't immediately make water, then maybe, yeah, you just go nuts oxidizing everything.
+[00:02:59] Yeah.
+[00:03:00] That's a nice simulation through.
+[00:03:03] Yeah.
+[00:03:04] Cool.
+[00:03:06] Now, we have some practical issues in my group that everybody is...
+[00:03:11] Let's see.
+[00:03:14] Everybody is either seven months pregnant or extremely busy at this moment in time.
+[00:03:18] So you have to kind of time this a little bit.
+[00:03:21] Okay.
+[00:03:22] Yeah.
+[00:03:23] So, yeah, for practical reasons, Joepjeet would be the best person to do this right now.
+[00:03:28] But I had to fund them out of a different project for this semester that he has to at
+[00:03:34] least show some results for before he can go back to...
+[00:03:37] I mean, he keeps doing his muhri stuff.
+[00:03:39] That's fine.
+[00:03:40] But we have to put another sort of muhri task on his desk at this point in time.
+[00:03:43] Yeah.
+[00:03:44] Yeah.
+[00:03:45] Let's just talk about time scale for this.
+[00:03:47] And when you would like this idea to happen, I'm not sure if there's any sort of big hurry
+[00:03:53] for you in any of this stuff.
+[00:03:55] For me personally, and you, you're Anthony, you can speak up.
+[00:03:58] I don't think there's a huge hurry because, you know, this was more...
+[00:04:02] We had this question of like, would it ever be possible to do this in air?
+[00:04:06] Right?
+[00:04:07] Yeah.
+[00:04:08] And so we tried it, it didn't work.
+[00:04:10] And now the question is why?
+[00:04:12] And if we understood why, could we then design conditions that would let us do it?
+[00:04:20] And so that's sort of like, I don't know, kind of a pie in the sky thing.
+[00:04:26] You know, it would be amazing if you could just start making carbides in open air.
+[00:04:31] Yep.
+[00:04:32] But it's unlikely to really happen.
+[00:04:35] So yeah, I'm not too, I'm not too bothered about waiting, but I don't know, again, if
+[00:04:42] Anthony or Yuki have different thoughts.
+[00:04:46] Well, I don't really mind about time.
+[00:04:54] Okay.
+[00:04:55] How about the following then?
+[00:04:57] Let's, let's get this semester with all this craziness out of the way.
+[00:05:02] And then maybe, maybe start something serious on this thing.
+[00:05:05] Would that be okay?
+[00:05:06] Sure.
+[00:05:08] Great.
+[00:05:09] So, I have to see what, what, what, what, what, what, what, what, what, what, what, what,
+[00:05:12] what is this.
+[00:05:13] I think Jor-Piet would be a good person to do this, but Mahmoud could do it as well.
+[00:05:16] It depends a bit how it's, I mean, he's really getting some really nice stuff out of the
+[00:05:19] Zirconian carbide stuff.
+[00:05:20] So I want him to spend as much time as he can to get JP's attention, which is hard.
+[00:05:26] Yeah.
+[00:05:27] Yeah.
+[00:05:28] Yeah.
+[00:05:29] But yeah.
+[00:05:30] But this, I like this.
+[00:05:33] I like the idea.
+[00:05:34] So just, at least from our perspective, it's really clean because we have all the input
+[00:05:38] structures.
+[00:05:39] Now our force filters may be not the greatest for the boron-oxidant carbide.
+[00:05:43] I'm not, I'm not even sure what that boron-oxidant carbon phase diagram even looks like.
+[00:05:48] Any idea if there are some weird things in there?
+[00:05:52] I think Yuki would know the most about this.
+[00:05:54] Yeah.
+[00:05:55] But yeah.
+[00:05:56] But the final boron carbide that you get, I guess you can probably leave it in air and
+[00:06:01] it will still be roughly a boron carbide for a long period of time.
+[00:06:04] Yeah.
+[00:06:05] It should probably maybe oxidize a little bit on the surface, but nothing dramatic changes
+[00:06:09] in its properties.
+[00:06:10] Is that, is that right?
+[00:06:11] I mean, like, yeah, I'm sorry.
+[00:06:16] I didn't get your point.
+[00:06:18] Now, in the end, you make a boron carbide.
+[00:06:21] Yeah.
+[00:06:22] Yeah.
+[00:06:23] And the boron carbide itself is relatively inert towards oxygen.
+[00:06:28] Yeah.
+[00:06:32] I mean, it should be because it's, it's, what is it?
+[00:06:35] It's pretty much graphite with a little bit of boron in it.
+[00:06:38] Mm-hmm.
+[00:06:39] It's B, it's, what is it?
+[00:06:41] It's B, B-C4 or B4C13 or that sort of stuff?
+[00:06:46] B4C.
+[00:06:47] Oh, well, well, it's mainly like, it's not like pure, it's not like pure B4C.
+[00:06:53] It's actually like B4, it's like B12C3-ish.
+[00:06:59] Oh, so it's actually rich in boron and poor in carbon.
+[00:07:04] Sorry.
+[00:07:05] Yeah, it's just a long way around.
+[00:07:07] So is that, is that structure actually stable in oxygen?
+[00:07:11] I mean, it's stable enough that we can't, we make it hand sampled up, you know.
+[00:07:18] Okay.
+[00:07:19] Okay.
+[00:07:20] But I mean, I worked for a long time in the Maxine field, which is pretty much, you
+[00:07:25] know, titanium carbide stuff.
+[00:07:27] And there that, that field had a problem that you couldn't actually leave a Maxine for two
+[00:07:31] months.
+[00:07:32] You could synthesize it.
+[00:07:33] Two months later, it would pretty much be rutile and graphite.
+[00:07:37] Yeah, okay.
+[00:07:38] I was curious, I could imagine that thermonetically, I would imagine that B203 and graphite, really
+[00:07:47] more stable.
+[00:07:48] They were enhanced down compared to B4C.
+[00:07:50] I mean, I cannot imagine anything else.
+[00:07:53] But that doesn't mean it happens because it's all kinetics essentially.
+[00:07:59] But I would imagine if you have a lump of pure boron and you leave it on your desk, it's
+[00:08:03] probably not going to be pure boron again after a month.
+[00:08:07] Is that, is that fair?
+[00:08:09] I think that's fair.
+[00:08:12] I mean, I guess we haven't, I have not written anything about the lifetime.
+[00:08:16] And I don't know if we've gone out of our way to study the stability of what we make
+[00:08:23] yet.
+[00:08:24] Yeah.
+[00:08:25] It's all about how well the oxide is.
+[00:08:28] I would imagine that your, whatever it is, your surface will probably oxidize in some
+[00:08:32] way or form.
+[00:08:34] But if it makes a nice, stable, high density oxide, then no, the rest of the material doesn't
+[00:08:40] care.
+[00:08:41] Yeah, yeah.
+[00:08:42] That's actually, in itself, interesting.
+[00:08:43] I had no idea if you have a, when boron clearly is actually a pretty stable material from
+[00:08:49] cohesive energy perspective, but I just don't know what it does.
+[00:08:53] Can you, I sure miss you make a fine powder of it.
+[00:08:56] It's clear what it's going to do.
+[00:08:57] But if you have a, if a big chunk of it, I don't know if it's, if it actually is relatively
+[00:09:02] stable.
+[00:09:03] Yeah.
+[00:09:04] I could imagine it might be.
+[00:09:08] The big deal, the problem with boron is that it's oxides actually have a relatively high
+[00:09:17] vapor pressure.
+[00:09:18] So you cannot take it to high temperature because they evaporate off and they just keep oxidizing.
+[00:09:23] But at low temperature, that's not such a big deal, I would imagine.
+[00:09:34] Yeah.
+[00:09:35] I don't know.
+[00:09:36] I mean, there's been some work and I think Yuki looked this up for her talk where people
+[00:09:40] were converting between different phases and that's sort of what got her started on this.
+[00:09:48] But yeah, I think at this point, all we know is we, if we do this in air, we end with basically
+[00:10:02] boronic acid.
+[00:10:03] Okay.
+[00:10:04] Oh, okay.
+[00:10:05] Yeah.
+[00:10:06] Sorry.
+[00:10:07] Borica.
+[00:10:08] Yeah.
+[00:10:09] Yeah.
+[00:10:10] And we don't know what happens in between.
+[00:10:15] But you know, this is maybe what you'd expect is sort of the thermodynamic endpoint and
+[00:10:19] it is what we find.
+[00:10:21] Yeah.
+[00:10:22] Oh yeah.
+[00:10:23] Here, I think she found the element according to AI.
+[00:10:26] Elemental boron is generally stable in air at room temperature.
+[00:10:28] So there you go.
+[00:10:31] But that can't see.
+[00:10:32] If you go high temperature, then indeed it will walk away towards all sort of stuff.
+[00:10:36] Yeah.
+[00:10:38] And I would imagine that the boron carbides will probably do the same thing because they
+[00:10:43] are pretty much very boron rich.
+[00:10:45] They might be a little bit less, more resistive than pure boron, but I think you'll probably
+[00:10:51] see kind of the same thing.
+[00:10:52] And clearly if you go high temperature, then yeah, any beta-free and boron acid pretty
+[00:10:57] much take over because they'll just evaporate off.
+[00:11:00] Yeah.
+[00:11:05] Yeah.
+[00:11:06] Stable in air at room temperature, forming a thin protective layer of boron oxide or
+[00:11:09] hydroxide that inhibits further corrosion.
+[00:11:12] Okay.
+[00:11:13] That makes sense.
+[00:11:14] So that's kind of interesting.
+[00:11:19] So that means that somewhere in your, since you say that if you do this in air that you're
+[00:11:23] pretty much, I guess that means that clearly your temperature is high enough and I would
+[00:11:28] imagine it gets pretty hot in there that you cannot make a protective oxide anymore and
+[00:11:33] pretty much the beta-free prefers to be in vapor phase and that's in general the problem
+[00:11:39] with boron oxide.
+[00:11:40] Yeah.
+[00:11:41] So that's sort of very stable oxide intermediates.
+[00:11:43] So that's why also, I mean, in the high energy material, they never really use boron, even
+[00:11:49] though they would love to use it.
+[00:11:50] They use aluminium instead because boron has all those sort of relatively stable low molecular
+[00:11:56] rate intermediates that just evaporates off and you never actually can get complete combustion
+[00:12:02] of boron.
+[00:12:03] Because all those intermediates are so stable and they evaporate off so you never actually
+[00:12:09] get to beta-free.
+[00:12:10] You end up with HOBO if I remember correctly.
+[00:12:13] Okay.
+[00:12:14] Interesting.
+[00:12:15] I used to work on high explosives a long time ago and there was indeed, I mean people just
+[00:12:20] looked at heat information and say, oh, boron should be the best thing around.
+[00:12:24] It's the lightest and atomic weight is a big deal in that community because if you launch
+[00:12:30] a rocket, the weight of your fuel is a big deal.
+[00:12:33] So boron looks beautiful but you can, and also beta-free is a great, great endpoint.
+[00:12:39] Yeah, thermally, but you never get to beta-free.
+[00:12:41] Yeah.
+[00:12:42] Because there's too many intermediates that just get made, fly off and you never get actually
+[00:12:48] a full energy out of it.
+[00:12:50] Yeah.
+[00:12:52] I mean, I don't know if we ever, so if that were the case, I mean, we only tried this once
+[00:12:58] and then we looked at the solid that was left behind but I guess it's conceivable that these
+[00:13:05] like volatile things at high temperature would condense and so if we had something around
+[00:13:09] that we could try to condense them on, we could look for them.
+[00:13:12] Yeah.
+[00:13:13] So that would be another, I mean this would probably, we wouldn't do it right away but
+[00:13:18] this would be informed by sort of the simulations you have, right?
+[00:13:21] If you're bringing things like this that we could try to collect.
+[00:13:24] Yeah, that actually makes it interesting because there are lots of interesting kinetics in
+[00:13:28] there.
+[00:13:29] Yeah.
+[00:13:30] I mean, from your perspective, I guess it would be a success if you actually have a
+[00:13:34] material that has even if an oxide surface still is kind of a nice carbide in the subsurface.
+[00:13:40] Yeah.
+[00:13:41] When you handle the material well enough, can you make it cool down fast enough in some
+[00:13:44] way or form that you avoid complete evaporation of the oxide?
+[00:13:51] Yeah.
+[00:13:52] Yep.
+[00:13:53] Yeah, I think anything, you know, we, well, so I think yeah, there's two possible outcomes
+[00:13:57] of this, right?
+[00:13:58] One is we learn how to make some kind of carbide in any amount under atmospheric O2.
+[00:14:08] That would be cool.
+[00:14:10] Or we learn why it doesn't work.
+[00:14:13] Both of those are totally fine.
+[00:14:15] Yeah.
+[00:14:16] I would imagine that if you have really good thermal contact that you may be able to take
+[00:14:19] temperature around quick enough that you can avoid oxidizing products to disappear on
+[00:14:25] you.
+[00:14:26] But you may have to have to have sort of a nice thin layer of a really good sort of
+[00:14:31] thermal contact, some sort of metal or some description or some along those lines.
+[00:14:35] Yeah.
+[00:14:36] It could be.
+[00:14:37] Yeah.
+[00:14:40] Yeah.
+[00:14:41] Okay.
+[00:14:42] That's not interesting.
+[00:14:43] So yeah, let's get back to, I'll keep this one in mind so I don't overload my group members
+[00:14:48] for May.
+[00:14:49] I won't talk about it because they'll get too stressed out.
+[00:14:54] Well, I think this sounds pretty interesting.
+[00:14:59] It gives us a nice sort of, I mean, you can do a really nice study on just, you know,
+[00:15:03] boron, carbon, oxygen species as sort of a, you know, 10 to 20 atom scale.
+[00:15:09] You can do a lot of nice quantum chemistry on those type of things and get actually a
+[00:15:12] very accurate force field for those type of kinetics.
+[00:15:15] Cool.
+[00:15:20] Cool, cool, cool.
+[00:15:21] Sounds good.
+[00:15:22] Okay.
+[00:15:23] So we go that way then.
+[00:15:24] I don't know if there's anything else.
+[00:15:35] No, from my side.
+[00:15:37] So let's see, we have a sort of a Murie meeting somewhere this week.
+[00:15:40] I got my, I know that Rob moves things around and figured that one of you probably knows
+[00:15:47] this is, oh, we have a complete Murie two hour type sort of thing right now.
+[00:15:55] So I got a Murie meeting for noon on Wednesday and one for, and one at one o'clock on Wednesday.
+[00:16:00] That's how you see it on your calendar then?
+[00:16:03] But I think the one on the right.
+[00:16:12] Oh, okay.
+[00:16:13] But that, that, that, that constellation hasn't been formally announced yet.
+[00:16:17] Okay.
+[00:16:18] So I knew our, our estimate is that the one at noon will happen at about one o'clock
+[00:16:26] vote.
+[00:16:27] That's correct.
+[00:16:28] Okay.
+[00:16:29] Well, let's see how that goes.
+[00:16:30] Yeah.
+[00:16:31] I'm sure Rob will confirm all these things to us.
+[00:16:34] Probably well before, well before Wednesday morning.
+[00:16:37] Yeah, let's hope.
+[00:16:40] Okay.
+[00:16:41] Well, I'll probably see you in some way or form then on Wednesday.
+[00:16:43] Sounds good.
+[00:16:44] Okay.
+[00:16:45] See you all.
+[00:16:46] Oh, so Wednesday I asked Mosh there to present.
+[00:16:48] So what she does actually is, it's not completely relevant, but it has some interest.
+[00:16:52] So she's been working, she works on my other Murie, but she's pretty much burning titanium
+[00:16:57] boron particles.
+[00:16:58] And that's actually pretty fascinating.
+[00:17:00] So it's not exactly what we're talking about.
+[00:17:03] We had lots of similarities.
+[00:17:04] It's pretty much about the competition between titanium burning and boron burning.
+[00:17:09] Titanium makes a really nice oxide, as we all know.
+[00:17:12] And boron at the temperature we operate out makes a really crappy oxide.
+[00:17:16] Okay.
+[00:17:17] But the titanium burns faster than boron.
+[00:17:21] So if it direct competition between if oxygen, if you're titanium boron gets exposed to oxygen,
+[00:17:26] first the titanium grabs the oxygen and later the boron can access to the thing.
+[00:17:30] So you get really, I mean, experiment, they actually get very interesting almost microscope
+[00:17:36] features.
+[00:17:37] So they make kind of a molten titanium oxide.
+[00:17:39] I mean, this is hot.
+[00:17:40] This is now 3000 Kelvin or so.
+[00:17:43] So they make a molten titanium oxide.
+[00:17:45] And then every time they get a sort of a big volcanic eruption when a whole bunch of boron
+[00:17:50] oxide kind of, and that's pretty boron oxide at that page well into the gas species, because
+[00:17:55] it makes it way through that liquid titanium oxide.
+[00:17:59] So we've been doing some simulations.
+[00:18:01] He didn't doesn't see the volcanoes, but we see enough things that kind of show similar
+[00:18:05] chemistry.
+[00:18:06] Yeah, that's cool.
+[00:18:08] Yep.
+[00:18:09] What's the, I guess, though, these like, maybe, maybe volcano-y things, then you see experimentally,
+[00:18:17] what's the, what's the like spacing between them?
+[00:18:22] The spacing between, you mean the size of the volcanoes?
+[00:18:25] Or just like, I'm assuming that like, you know, there must be some information about
+[00:18:31] like the distance between them, since you have this like mass transport, right?
+[00:18:35] Yeah, I don't know.
+[00:18:37] I already see the pretty pictures.
+[00:18:39] We have, we talked with them.
+[00:18:40] This is a, I don't know if you know, this is Scott's, I always get a surname, but give
+[00:18:45] me a second.
+[00:18:48] So we're working in Aldermury with Scott, Scott, Scott, Scott McCormack.
+[00:18:59] He does really high temperature experiments on all these sort of boron carbides, zirconium
+[00:19:05] boride, silicon carbides, and that sort of stuff.
+[00:19:09] He really moved from UC Davis to UC Berkeley, I think, or something along those lines.
+[00:19:17] His experiments are pretty nice and we can, and it's also a nice temperature for our simulations
+[00:19:24] because at 3000 Kelvin, things go pretty quickly.
+[00:19:29] So in a couple of nanoseconds we actually can get some meaningful results typically.
+[00:19:33] Yeah, cool.
+[00:19:34] Oh yeah, so that might all get presented on Wednesday.
+[00:19:38] Yeah, cool.
+[00:19:39] Okay, see you then.
+[00:19:41] Yeah.
+[00:19:42] Bye.
+[00:19:43] Bye.
+[00:19:44] Bye.
+[00:19:45] Bye.
+[00:19:46] Bye.
+[00:19:47] Bye.
+[00:19:48] Bye.
+[00:19:49] Bye.
+[00:19:50] Bye.
+[00:19:51] Bye.
+[00:19:52] Bye.
+[00:19:53] Bye.

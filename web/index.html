@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Speech-to-Text Meeting Helper</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="orb orb-a" aria-hidden="true"></div>
+    <div class="orb orb-b" aria-hidden="true"></div>
+    <main class="shell">
+      <header class="hero">
+        <p class="eyebrow">Local GPU-First Transcription</p>
+        <h1>Speech-to-Text Meeting Helper</h1>
+        <p class="subtitle">Upload audio, track progress, preview transcript, and download TXT/SRT outputs.</p>
+      </header>
+
+      <section class="panel">
+        <form id="uploadForm" class="stack">
+          <input id="fileInput" type="file" accept="audio/*" hidden />
+          <input id="localAudioInput" type="file" accept="audio/*" hidden />
+          <input id="localSrtInput" type="file" accept=".srt,.txt,text/plain" hidden />
+          <button type="button" id="dropZone" class="dropzone">
+            <span class="drop-title">Drop audio here</span>
+            <span class="drop-subtitle">or click to choose a file</span>
+            <span class="drop-file" id="fileName">No file selected</span>
+          </button>
+
+          <div class="controls">
+            <label class="field">
+              <span>Model</span>
+              <select id="modelSelect" name="model">
+                <option value="small" selected>small (recommended)</option>
+                <option value="tiny">tiny</option>
+                <option value="base">base</option>
+                <option value="medium">medium</option>
+                <option value="large-v3">large-v3</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Export Folder</span>
+              <input id="exportFolder" type="text" name="export_folder" value="default" />
+            </label>
+
+            <button id="startBtn" type="submit" class="action">Start Transcription</button>
+          </div>
+
+          <div class="alt-tools">
+            <button id="loadExistingBtn" type="button" class="secondary-action">Upload Existing Audio + SRT</button>
+            <span id="localPairName" class="helper-text">No local audio/SRT pair loaded</span>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel status-panel">
+        <div class="status-top">
+          <strong id="statusLabel">Idle</strong>
+          <span id="statusPercent">0%</span>
+        </div>
+        <div class="progress-track">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
+        <p id="statusMessage" class="status-message">Drop an audio file to begin.</p>
+      </section>
+
+      <section id="resultPanel" class="result-grid hidden">
+        <article class="panel">
+          <h2>Outputs</h2>
+          <div class="meta-grid">
+            <div class="meta-item"><span>Status</span><strong id="metaStatus">-</strong></div>
+            <div class="meta-item"><span>Device</span><strong id="metaDevice">-</strong></div>
+            <div class="meta-item"><span>Language</span><strong id="metaLanguage">-</strong></div>
+            <div class="meta-item"><span>Segments</span><strong id="metaSegments">-</strong></div>
+          </div>
+          <div class="download-row">
+            <a id="downloadTxt" class="download-btn" href="#" download>Download TXT</a>
+            <a id="downloadSrt" class="download-btn" href="#" download>Download SRT</a>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>Player + Transcript</h2>
+          <audio id="audioPlayer" controls preload="metadata"></audio>
+          <div class="now-playing">
+            <span>Current Text</span>
+            <textarea id="currentTextBox" readonly aria-live="polite"></textarea>
+          </div>
+          <div id="transcriptList" class="transcript-list"></div>
+        </article>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

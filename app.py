@@ -55,7 +55,7 @@ for directory in (UPLOAD_DIR, OUTPUT_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 LIVE_TARGET_SAMPLE_RATE = 16_000
-LIVE_LOW_LATENCY_CHUNK_SECONDS = 2.0
+LIVE_LOW_LATENCY_CHUNK_SECONDS = 4.0
 LIVE_LOW_LATENCY_FLUSH_SECONDS = 0.35
 LIVE_BUFFERED_CHUNK_SECONDS = 60.0
 LIVE_BUFFERED_OVERLAP_SECONDS = 6.0
@@ -63,7 +63,10 @@ LIVE_BUFFERED_FLUSH_SECONDS = 8.0
 LIVE_LEVEL_EVENT_INTERVAL_SECONDS = 0.12
 LIVE_BUFFER_METRICS_INTERVAL_SECONDS = 0.3
 LIVE_LEVEL_FLOOR_DBFS = -90.0
+LIVE_USE_VAD_FILTER = False
 
+LIVE_DEFAULT_MODEL = "small"
+LIVE_DEFAULT_LANGUAGE = "en"
 AVAILABLE_MODELS = ["tiny", "base", "small", "medium", "large-v3"]
 
 
@@ -94,7 +97,8 @@ class Job:
 class LiveStartRequest(BaseModel):
     source: str = "mic"
     mode: str = "new"
-    model: str = "tiny"
+    model: str = LIVE_DEFAULT_MODEL
+    language: str | None = LIVE_DEFAULT_LANGUAGE
     device_id: str | None = None
     capture_mode: str = "buffered_hq"
 
@@ -115,7 +119,8 @@ live_state: dict[str, Any] = {
     "status": "idle",
     "source": "mic",
     "mode": "new",
-    "model": "tiny",
+    "model": LIVE_DEFAULT_MODEL,
+    "language": LIVE_DEFAULT_LANGUAGE,
     "capture_mode": "buffered_hq",
     "device_id": None,
     "device_label": None,
@@ -330,10 +335,44 @@ def resample_audio(audio: np.ndarray, source_rate: int, target_rate: int) -> np.
     if source_rate == target_rate:
         return audio.astype(np.float32, copy=False)
 
-    target_len = max(1, int(round((audio.shape[0] / source_rate) * target_rate)))
-    source_positions = np.arange(audio.shape[0], dtype=np.float64)
-    target_positions = np.linspace(0, audio.shape[0] - 1, target_len, dtype=np.float64)
-    return np.interp(target_positions, source_positions, audio).astype(np.float32)
+    source_audio = audio.astype(np.float32, copy=False)
+    try:
+        frame = av.AudioFrame.from_ndarray(source_audio.reshape(1, -1), format="flt", layout="mono")
+        frame.sample_rate = int(source_rate)
+        resampler = av.audio.resampler.AudioResampler(
+            format="flt",
+            layout="mono",
+            rate=int(target_rate),
+        )
+        out_frames = resampler.resample(frame)
+        out_frames.extend(resampler.resample(None))
+        if out_frames:
+            return np.concatenate([item.to_ndarray().reshape(-1) for item in out_frames]).astype(
+                np.float32
+            )
+    except Exception:
+        # Fallback path if PyAV resampling fails in the runtime environment.
+        pass
+
+    target_len = max(1, int(round((source_audio.shape[0] / source_rate) * target_rate)))
+    source_positions = np.arange(source_audio.shape[0], dtype=np.float64)
+    target_positions = np.linspace(0, source_audio.shape[0] - 1, target_len, dtype=np.float64)
+    return np.interp(target_positions, source_positions, source_audio).astype(np.float32)
+
+
+def capture_to_mono(frame: np.ndarray) -> np.ndarray:
+    if frame.ndim == 1:
+        return frame.astype(np.float32, copy=False)
+    if frame.ndim != 2:
+        return np.asarray(frame, dtype=np.float32).reshape(-1)
+
+    channels = frame.astype(np.float32, copy=False)
+    if channels.shape[1] <= 1:
+        return channels[:, 0]
+
+    channel_energy = np.mean(np.square(channels, dtype=np.float32), axis=0)
+    channel_index = int(np.argmax(channel_energy))
+    return channels[:, channel_index]
 
 
 def list_live_mic_devices() -> list[dict[str, Any]]:
@@ -492,6 +531,7 @@ def transcribe_live_chunk(
     beam_size: int = 1,
     condition_on_previous_text: bool = False,
     vad_filter: bool = True,
+    language: str | None = None,
 ) -> list[dict[str, Any]]:
     chunk = resample_audio(raw_chunk, source_rate, LIVE_TARGET_SAMPLE_RATE)
     if chunk.size == 0:
@@ -503,6 +543,7 @@ def transcribe_live_chunk(
         best_of=1,
         vad_filter=vad_filter,
         condition_on_previous_text=condition_on_previous_text,
+        language=language,
     )
 
     segments: list[dict[str, Any]] = []
@@ -521,6 +562,7 @@ def run_live_transcription(
     source: str,
     mode: str,
     model_name: str,
+    language: str | None,
     capture_mode: str,
     selected_device_id: str,
     selected_device_label: str,
@@ -544,6 +586,7 @@ def run_live_transcription(
             source=source,
             mode=mode,
             model=model_name,
+            language=language,
             capture_mode=capture_mode,
             device_id=selected_device_id,
             device_label=selected_device_label,
@@ -649,6 +692,7 @@ def run_live_transcription(
                 beam_size=beam_size,
                 condition_on_previous_text=condition_on_previous_text,
                 vad_filter=vad_filter,
+                language=language,
             )
             for segment in segments:
                 if float(segment["end"]) <= (emit_from + 0.02):
@@ -699,7 +743,7 @@ def run_live_transcription(
                         chunk_start=chunk_start,
                         beam_size=1,
                         condition_on_previous_text=False,
-                        vad_filter=True,
+                        vad_filter=LIVE_USE_VAD_FILTER,
                         emit_from=base_offset + chunk_start,
                     )
 
@@ -712,7 +756,7 @@ def run_live_transcription(
                     chunk_start=chunk_start,
                     beam_size=1,
                     condition_on_previous_text=False,
-                    vad_filter=True,
+                    vad_filter=LIVE_USE_VAD_FILTER,
                     emit_from=base_offset + chunk_start,
                 )
 
@@ -803,7 +847,7 @@ def run_live_transcription(
                             chunk_start=float(item["chunk_start"]),
                             beam_size=5,
                             condition_on_previous_text=True,
-                            vad_filter=True,
+                            vad_filter=LIVE_USE_VAD_FILTER,
                             emit_from=float(item["emit_from"]),
                         )
                 except Exception as exc:  # pragma: no cover - model/device dependent
@@ -872,7 +916,7 @@ def run_live_transcription(
                     with loopback_mic.recorder(samplerate=source_rate, channels=channels) as recorder:
                         while not stop_event.is_set():
                             frame = recorder.record(numframes=frame_count)
-                            mono = np.mean(frame, axis=1, dtype=np.float32)
+                            mono = capture_to_mono(frame)
                             push_frame(mono)
                 except Exception as exc:  # pragma: no cover - device/environment specific
                     capture_error.append(exc)
@@ -912,7 +956,7 @@ def run_live_transcription(
                     status_payload = update_live_state(message=f"Audio status: {status}")
                     push_live_event({"type": "live_state", "state": status_payload})
 
-                mono = np.mean(indata, axis=1, dtype=np.float32)
+                mono = capture_to_mono(indata)
                 push_frame(mono)
 
             stream_kwargs: dict[str, Any] = {
@@ -1256,7 +1300,9 @@ def start_live(request: LiveStartRequest) -> dict[str, Any]:
 
     source = request.source.strip().lower()
     mode = request.mode.strip().lower()
-    model_name = request.model.strip().lower() or "tiny"
+    model_name = request.model.strip().lower() or LIVE_DEFAULT_MODEL
+    requested_language = request.language.strip().lower() if request.language else LIVE_DEFAULT_LANGUAGE
+    language = None if requested_language in {"", "auto", "detect"} else requested_language
     requested_device_id = request.device_id.strip() if request.device_id else None
     capture_mode = request.capture_mode.strip().lower() if request.capture_mode else "buffered_hq"
     if source not in {"mic", "system"}:
@@ -1267,6 +1313,8 @@ def start_live(request: LiveStartRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="capture_mode must be 'low_latency' or 'buffered_hq'")
     if model_name not in AVAILABLE_MODELS:
         raise HTTPException(status_code=400, detail=f"Unsupported model '{model_name}'.")
+    if language is not None and not re.fullmatch(r"[a-z]{2,3}(?:-[a-z]{2})?", language):
+        raise HTTPException(status_code=400, detail="language must be auto/detect or a valid code like 'en'.")
     if has_active_batch_jobs():
         raise HTTPException(
             status_code=409,
@@ -1296,6 +1344,7 @@ def start_live(request: LiveStartRequest) -> dict[str, Any]:
                 "source": source,
                 "mode": mode,
                 "model": model_name,
+                "language": language,
                 "capture_mode": capture_mode,
                 "device_id": selected_device_id,
                 "device_label": selected_device_label,
@@ -1327,6 +1376,7 @@ def start_live(request: LiveStartRequest) -> dict[str, Any]:
             source,
             mode,
             model_name,
+            language,
             capture_mode,
             selected_device_id,
             selected_device_label,

@@ -48,6 +48,7 @@ const liveCaptureMode = document.getElementById("liveCaptureMode");
 const liveDevice = document.getElementById("liveDevice");
 const liveMode = document.getElementById("liveMode");
 const liveModel = document.getElementById("liveModel");
+const liveLanguage = document.getElementById("liveLanguage");
 const livePreloadBtn = document.getElementById("livePreloadBtn");
 const livePreloadStatus = document.getElementById("livePreloadStatus");
 const liveToggleBtn = document.getElementById("liveToggleBtn");
@@ -375,6 +376,7 @@ const refreshControls = () => {
   liveDevice.disabled = lockLiveSelectors || !devicesForSource(liveSource.value).length;
   liveMode.disabled = lockLiveSelectors;
   liveModel.disabled = lockLiveSelectors;
+  liveLanguage.disabled = lockLiveSelectors;
   livePreloadBtn.disabled = lockLiveSelectors || state.livePreloadPending;
   livePreloadBtn.textContent = state.livePreloadPending ? "Pre-loading..." : "Pre-load Selected Model";
 
@@ -694,6 +696,11 @@ const applyLiveState = (liveState, preferStatusMessage = true) => {
   if (liveState.model && liveState.model !== liveModel.value) {
     liveModel.value = liveState.model;
   }
+  if (Object.prototype.hasOwnProperty.call(liveState, "language")) {
+    const stateLanguage = liveState.language || "auto";
+    const matchingOption = Array.from(liveLanguage.options).find((opt) => opt.value === stateLanguage);
+    liveLanguage.value = matchingOption ? matchingOption.value : "auto";
+  }
   if (liveState.capture_mode && liveState.capture_mode !== liveCaptureMode.value) {
     liveCaptureMode.value = liveState.capture_mode;
   }
@@ -927,6 +934,7 @@ const startLive = async () => {
       source: liveSource.value,
       mode: liveMode.value,
       model: liveModel.value,
+      language: liveLanguage.value,
       device_id: liveDevice.value || null,
       capture_mode: liveCaptureMode.value,
     }),

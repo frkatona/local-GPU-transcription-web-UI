@@ -91,11 +91,19 @@
             <label class="field">
               <span>Live Model</span>
               <select id="liveModel">
-                <option value="tiny" selected>tiny (lowest latency)</option>
+                <option value="small" selected>small (recommended)</option>
+                <option value="tiny">tiny (lowest quality)</option>
                 <option value="base">base</option>
-                <option value="small">small</option>
                 <option value="medium">medium</option>
                 <option value="large-v3">large-v3 (best quality)</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Live Language</span>
+              <select id="liveLanguage">
+                <option value="en" selected>English (recommended)</option>
+                <option value="auto">Auto Detect</option>
               </select>
             </label>
 

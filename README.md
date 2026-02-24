@@ -16,6 +16,12 @@ Built with `faster-whisper` and `FastAPI` for the backend and `React` for the fr
 
 ---
 
+## Model Performance
+
+All models seemed to report .srt content with a desync of a few seconds.
+
+Both the tiny and large-v3 models seem to have done a perfect job with a recording of strongly-accented English speaker who was using several theoretical chemistry terms.  I'm not sure what the returns are supposed to be...maybe the heavier model is more tolerant of background noise or overlapping speakers?
+
 Model times on RTX 3080 for a 1 hour mp3:
 | model  | time |
 | ------------- | ------------- |
@@ -27,13 +33,9 @@ Model times on RTX 3080 for a 1 hour mp3:
 
 Note that most of the time is from loading the model — reusing the same model for multiple files results in comparable times across all models.
 
+I'm not seeing where the actual models are stored during a cursory search, but after experimenting with all 5 models (ending with large-v3), the size of my project is still under 600 MB.  
 
-I'm not seeing where the actual models are stored during a cursory search, but after experimenting with all 5 models (ending with large-v3), the size of my project is still under 600 MB.
 
-
-It is unclear why the base model is slightly slower than the tiny model, but the difference is too small for me to want to explore.  All models seemed to report .srt content with a desync of a few seconds.
-
-Both the tiny and large-v3 models seem to have done a perfect job with a recording of strongly-accented English speaker who was using several theoretical chemistry terms.  I'm not sure what the returns are supposed to be...maybe the heavier model is more tolerant of background noise or overlapping speakers?
 
 ---
 

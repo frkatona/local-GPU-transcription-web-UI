@@ -1,62 +1,32 @@
 # Speech-to-Text Meeting Helper
 
-Local speech-to-text model with simple browser UI and player/transcript reader 
+Local speech-to-text app built with FastAPI + `faster-whisper` and a browser UI.
 
 ![progress bar](readme_images/STT-progressbar.gif)
 
-The transcript can be downloaded as a .txt or .srt for synchronized captioning.  Uses `faster-whisper` with GPU-first fallback behavior with the smallest model taking ~1 min to transcribe a ~1 hour mp3 on my RTX 3080
-
-GPU-first fallback behavior:
-- tries `cuda` + `float16` first
-- falls back to `cpu` + `int8` automatically
-
-Model times on RTX 3080 for a 1 hour mp3:
-| model  | time |
-| ------------- | ------------- |
-| tiny  | 0 min 34 s |
-| small  | 0 min 57 s |
-| base  | 0 min 39 s |
-| medium  | 2 min 27 s |
-| large-v3 | 7 min 15 s |
-
-Note that most of the time is from loading the model — reusing the same model for multiple files results in comparable times across all models.
-
-
-I'm not seeing where the actual models are stored during a cursory search, but after experimenting with all 5 models (ending with large-v3), the size of my project is still under 600 MB.
-
-
-It is unclear why the base model is slightly slower than the tiny model, but the difference is too small for me to want to explore.  All models seemed to report .srt content with a desync of a few seconds.
-
-I wanted to compare the models in quality, but both the tiny and large-v3 models seem to have done a perfect job with a recording of strongly-accented English speaker who was using several theoretical chemistry terms.  I'm not sure what the returns are supposed to be...maybe the heavier model is more tolerant of background noise or overlapping speakers?
-
-
-Outputs:
-- `*.transcript.txt` with `[HH:MM:SS]` line timestamps
-- `*.transcript.srt` for subtitle/caption workflows
-
 ## Features
 
-- CLI transcription (`transcribe.py`)
-- Local web UI (`app.py`) with:
+- File transcription jobs (`/api/jobs`)
   - drag-and-drop upload
-  - model selection
-  - export folder selection (inside `data/outputs/<folder>`)
-  - live status + progress bar (includes total transcription time on completion)
-  - download buttons for TXT/SRT
-  - audio player + clickable transcript timestamps
-  - local `Upload Existing Audio + SRT` flow (no server transcription needed)
-  - live capture toggle:
-    - source: microphone or Windows system loopback
-    - capture mode:
-      - `Buffered HQ` (records rolling chunks and transcribes in background for better accuracy)
-      - `Low Latency` (faster text, lower quality)
-    - live language lock (`English` recommended) or auto-detect
-    - device picker for both microphone and system output
-    - live input-level meter for capture troubleshooting
-    - buffered update countdown + backlog indicator
-    - model pre-load button to warm the selected live model before starting
-    - mode: continue existing text or start new text
-    - live transcript download as TXT/SRT
+  - model selection (`tiny`, `base`, `small`, `medium`, `large-v3`)
+  - TXT + SRT outputs
+  - synced player/transcript view
+- Live transcription (`/api/live/*`, `/ws/live`)
+  - microphone or Windows system loopback capture
+  - `low_latency` and `buffered_hq` capture modes
+  - websocket segment streaming
+  - append-to-current vs new session
+- Live diagnostics and debug artifacts
+  - input level meter (`dBFS`) + buffered countdown + queue depth
+  - captured input WAV download (`/api/live/download/audio`)
+  - 16 kHz Whisper-input WAV download (`/api/live/download/audio_16k`)
+  - per-session diagnostics JSON download (`/api/live/download/diagnostics`)
+- Local playback mode (no server transcription)
+  - `Upload Existing Audio + SRT`
+
+GPU-first model loading behavior:
+- tries `cuda` + `float16` first
+- falls back to `cpu` + `int8`
 
 ## Setup
 
@@ -65,77 +35,41 @@ py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-## CLI Usage
-
-```powershell
-.\.venv\Scripts\python.exe .\transcribe.py <audio_file> [--model <model_name>]
-```
-
-Example:
-
-```powershell
-.\.venv\Scripts\python.exe .\transcribe.py "Meeting.mp3" --model small
-```
-
-### CLI Flags
-
-- `audio_file` (required): input audio file path
-- `--model` (optional, default `small`): `tiny`, `base`, `small`, `medium`, `large-v3`
-
-## Web UI Usage
-
-Start server:
+## Run
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-Open:
+Open `http://127.0.0.1:8000`.
 
-```text
-http://127.0.0.1:8000
+## File Workflow
+
+1. Drop/select an audio file.
+2. Pick model + export folder.
+3. Click `Start Transcription`.
+4. Download TXT/SRT and use the synced player/transcript panel.
+
+## Live Workflow
+
+1. Select live source (`Microphone` or `System Audio (Loopback)`).
+2. Select capture mode (`Buffered HQ` or `Low Latency`).
+3. Select device, model, language, and start mode (`append` or `new`).
+4. Click `Start Live Transcription`.
+5. Stop capture and download artifacts as needed:
+   - transcript TXT/SRT
+   - captured source WAV
+   - 16 kHz Whisper-input WAV
+   - diagnostics JSON
+
+## Quick API Checks
+
+```powershell
+irm http://127.0.0.1:8000/api/live/state | ConvertTo-Json -Depth 6
 ```
 
-Workflow:
-1. Drop/select audio file.
-2. Pick model and export folder.
-3. Click `Start Transcription`.
-4. Track progress, then preview transcript and download TXT/SRT.
+## Data Paths
 
-Alternative local playback workflow:
-1. Click `Upload Existing Audio + SRT`.
-2. Select an audio file, then select an `.srt` file.
-3. Use the player and auto-updating transcript text box.
-
-Live workflow (no Audacity):
-1. Choose `Live Source` (`Microphone` or `System Audio (Loopback)`).
-2. Choose `Capture Mode` (`Buffered HQ` recommended for meetings).
-3. Choose the exact `Live Device`.
-4. Choose `Live Model` (`small` or `medium` recommended for quality).
-5. Choose `Live Language` (`English` recommended unless you need another language).
-6. Choose `On Start` (`Continue existing text` or `Start new transcript`).
-7. (Optional) Click `Pre-load Selected Model`.
-8. Click `Start Live Transcription`.
-9. Watch `Input Level` and (for `Buffered HQ`) `Next Buffer Update` for troubleshooting.
-10. Click `Stop Live Transcription` when done, then download TXT/SRT.
-
-Notes:
-- System audio capture requires Windows WASAPI loopback support.
-- While live capture is active, file transcription is locked to avoid resource conflicts.
-- If you still see occasional discontinuity warnings, keep the selected output device stable and avoid changing default audio devices mid-session.
-- Live capture currently runs with VAD gating disabled to avoid dropped speech in difficult device pipelines.
-
-## Using `.srt` with VLC for closed-captioned listening:
-
-- open audio file in VLC and then drag-and-drop the corresponding `.srt` file onto the VLC window to load the captions
-  - alternatively, you can place the `.srt` file in the same directory as the audio file with the same base name (e.g., `Meeting.mp3` and `Meeting.srt`), and VLC should automatically load the captions when you play the audio 
-- In VLC, go to `Audio -> Visualizer ->` and select a visualizer (e.g., `Spectrum`)
-
-## Expansion Ideas (Simple -> More Advanced)
-
-1. Batch processing for folders of recordings.
-2. Additional outputs: `.vtt`, JSON metadata, word-level timings.
-3. Optional diarization (speaker labels).
-4. Real-time microphone streaming with partial/final transcript states.
-5. Session modes for live transcription: append-to-current vs new session.
-6. Post-processing: summaries, action items, decision extraction.
+- uploads: `data/uploads`
+- file outputs: `data/outputs/<folder>`
+- live captures + diagnostics: `data/live_captures`

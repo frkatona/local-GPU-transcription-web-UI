@@ -63,6 +63,9 @@ const progressBar = document.getElementById("progressBar");
 const resultPanel = document.getElementById("resultPanel");
 const downloadTxt = document.getElementById("downloadTxt");
 const downloadSrt = document.getElementById("downloadSrt");
+const downloadAudio = document.getElementById("downloadAudio");
+const downloadAudio16k = document.getElementById("downloadAudio16k");
+const downloadDiagnostics = document.getElementById("downloadDiagnostics");
 const metaStatus = document.getElementById("metaStatus");
 const metaDevice = document.getElementById("metaDevice");
 const metaLanguage = document.getElementById("metaLanguage");
@@ -70,6 +73,8 @@ const metaSegments = document.getElementById("metaSegments");
 const audioPlayer = document.getElementById("audioPlayer");
 const transcriptList = document.getElementById("transcriptList");
 const currentTextBox = document.getElementById("currentTextBox");
+
+const liveDebugDownloadAnchors = [downloadAudio, downloadAudio16k, downloadDiagnostics].filter(Boolean);
 
 const busyStates = new Set(["queued", "running"]);
 const liveActiveStates = new Set(["starting", "running", "stopping"]);
@@ -258,6 +263,11 @@ const clearDownloadLinks = () => {
   downloadSrt.removeAttribute("href");
   downloadTxt.removeAttribute("download");
   downloadSrt.removeAttribute("download");
+  for (const anchor of liveDebugDownloadAnchors) {
+    anchor.removeAttribute("href");
+    anchor.removeAttribute("download");
+    anchor.classList.add("hidden");
+  }
 };
 
 const setServerDownloads = (downloads) => {
@@ -265,8 +275,39 @@ const setServerDownloads = (downloads) => {
   if (!downloads) {
     return;
   }
-  downloadTxt.href = downloads.txt;
-  downloadSrt.href = downloads.srt;
+  if (downloads.txt) {
+    downloadTxt.href = downloads.txt;
+  }
+  if (downloads.srt) {
+    downloadSrt.href = downloads.srt;
+  }
+  if (downloads.audio && downloadAudio) {
+    downloadAudio.href = downloads.audio;
+    downloadAudio.classList.remove("hidden");
+  }
+  if (downloads.audio_16k && downloadAudio16k) {
+    downloadAudio16k.href = downloads.audio_16k;
+    downloadAudio16k.classList.remove("hidden");
+  }
+  if (downloads.diagnostics && downloadDiagnostics) {
+    downloadDiagnostics.href = downloads.diagnostics;
+    downloadDiagnostics.classList.remove("hidden");
+  }
+};
+
+const setLivePlayerAudio = (audioUrl, sessionId = null) => {
+  if (!audioUrl) {
+    return;
+  }
+  if (audioPlayer.src && audioPlayer.src.includes(audioUrl)) {
+    return;
+  }
+  const stamp = Date.now();
+  const sessionPart = sessionId ? `&session=${encodeURIComponent(sessionId)}` : "";
+  const separator = audioUrl.includes("?") ? "&" : "?";
+  const resolved = `${audioUrl}${separator}ts=${stamp}${sessionPart}`;
+  clearLocalAudioObjectUrl();
+  audioPlayer.src = resolved;
 };
 
 const buildTxtFromSegments = (segments, title = "transcript") => {
@@ -758,6 +799,9 @@ const applyLiveState = (liveState, preferStatusMessage = true) => {
 
   if (liveState.downloads) {
     setServerDownloads(liveState.downloads);
+    if (liveState.downloads.audio) {
+      setLivePlayerAudio(liveState.downloads.audio, liveState.session_id || null);
+    }
   } else if (state.liveStatus === "running" || state.liveStatus === "starting") {
     clearDownloadLinks();
   }

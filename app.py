@@ -8,10 +8,11 @@ import re
 import threading
 import time
 import uuid
+import wave
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import av
 import numpy as np
@@ -33,8 +34,9 @@ def _binary_fromstring_compat(
     if sep == "":
         try:
             buffer_view = memoryview(string)
-            return np.frombuffer(buffer_view, dtype=dtype, count=count)
-        except TypeError:
+            # Keep binary fromstring semantics safe for mutable buffers by copying.
+            return np.frombuffer(buffer_view, dtype=dtype, count=count).copy()
+        except (TypeError, ValueError):
             pass
     if like is None:
         return _ORIGINAL_NP_FROMSTRING(string, dtype=dtype, count=count, sep=sep)
@@ -50,8 +52,9 @@ STATIC_DIR = WEB_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 OUTPUT_DIR = DATA_DIR / "outputs"
+LIVE_CAPTURE_DIR = DATA_DIR / "live_captures"
 
-for directory in (UPLOAD_DIR, OUTPUT_DIR):
+for directory in (UPLOAD_DIR, OUTPUT_DIR, LIVE_CAPTURE_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 LIVE_TARGET_SAMPLE_RATE = 16_000
@@ -140,6 +143,22 @@ live_state: dict[str, Any] = {
 }
 live_thread: threading.Thread | None = None
 live_stop_event: threading.Event | None = None
+live_audio_meta: dict[str, Any] = {
+    "path": None,
+    "sample_rate": None,
+    "duration_seconds": 0.0,
+    "session_id": None,
+}
+live_asr_audio_meta: dict[str, Any] = {
+    "path": None,
+    "sample_rate": None,
+    "duration_seconds": 0.0,
+    "session_id": None,
+}
+live_diagnostics_meta: dict[str, Any] = {
+    "path": None,
+    "session_id": None,
+}
 
 live_clients: set[WebSocket] = set()
 live_main_loop: asyncio.AbstractEventLoop | None = None
@@ -251,6 +270,116 @@ def get_live_segments_copy() -> list[dict[str, Any]]:
         return [dict(segment) for segment in live_segments]
 
 
+def clear_live_audio_artifact(delete_file: bool = False) -> None:
+    with live_state_lock:
+        current_path = live_audio_meta.get("path")
+        live_audio_meta.update(
+            {
+                "path": None,
+                "sample_rate": None,
+                "duration_seconds": 0.0,
+                "session_id": None,
+            }
+        )
+
+    if delete_file and current_path:
+        try:
+            path = Path(str(current_path))
+            if path.exists():
+                path.unlink()
+        except Exception:
+            pass
+
+
+def set_live_audio_artifact(path: Path, sample_rate: int, duration_seconds: float, session_id: str) -> None:
+    with live_state_lock:
+        live_audio_meta.update(
+            {
+                "path": str(path),
+                "sample_rate": int(sample_rate),
+                "duration_seconds": float(max(0.0, duration_seconds)),
+                "session_id": session_id,
+            }
+        )
+
+
+def get_live_audio_artifact_copy() -> dict[str, Any]:
+    with live_state_lock:
+        return dict(live_audio_meta)
+
+
+def clear_live_asr_audio_artifact(delete_file: bool = False) -> None:
+    with live_state_lock:
+        current_path = live_asr_audio_meta.get("path")
+        live_asr_audio_meta.update(
+            {
+                "path": None,
+                "sample_rate": None,
+                "duration_seconds": 0.0,
+                "session_id": None,
+            }
+        )
+
+    if delete_file and current_path:
+        try:
+            path = Path(str(current_path))
+            if path.exists():
+                path.unlink()
+        except Exception:
+            pass
+
+
+def set_live_asr_audio_artifact(path: Path, sample_rate: int, duration_seconds: float, session_id: str) -> None:
+    with live_state_lock:
+        live_asr_audio_meta.update(
+            {
+                "path": str(path),
+                "sample_rate": int(sample_rate),
+                "duration_seconds": float(max(0.0, duration_seconds)),
+                "session_id": session_id,
+            }
+        )
+
+
+def get_live_asr_audio_artifact_copy() -> dict[str, Any]:
+    with live_state_lock:
+        return dict(live_asr_audio_meta)
+
+
+def clear_live_diagnostics_artifact(delete_file: bool = False) -> None:
+    with live_state_lock:
+        current_path = live_diagnostics_meta.get("path")
+        live_diagnostics_meta.update(
+            {
+                "path": None,
+                "session_id": None,
+            }
+        )
+
+    if delete_file and current_path:
+        try:
+            path = Path(str(current_path))
+            if path.exists():
+                path.unlink()
+        except Exception:
+            pass
+
+
+def set_live_diagnostics_artifact(path: Path, session_id: str) -> None:
+    with live_state_lock:
+        live_diagnostics_meta.update(
+            {
+                "path": str(path),
+                "session_id": session_id,
+            }
+        )
+
+
+def get_live_diagnostics_artifact_copy() -> dict[str, Any]:
+    with live_state_lock:
+        return dict(live_diagnostics_meta)
+
+
 def build_live_metrics_response_locked() -> dict[str, Any]:
     return {
         "input_level_rms": float(live_state.get("input_level_rms", 0.0) or 0.0),
@@ -267,11 +396,47 @@ def build_live_state_response_locked() -> dict[str, Any]:
     state_copy = dict(live_state)
     segment_count = len(live_segments)
     state_copy["segment_count"] = segment_count
+    downloads: dict[str, str] = {}
     if segment_count > 0:
-        state_copy["downloads"] = {
-            "txt": "/api/live/download/txt",
-            "srt": "/api/live/download/srt",
-        }
+        downloads["txt"] = "/api/live/download/txt"
+        downloads["srt"] = "/api/live/download/srt"
+
+    audio_path = live_audio_meta.get("path")
+    if audio_path:
+        path = Path(str(audio_path))
+        if path.exists():
+            downloads["audio"] = "/api/live/download/audio"
+            state_copy["audio_duration_seconds"] = float(live_audio_meta.get("duration_seconds") or 0.0)
+            state_copy["audio_sample_rate"] = live_audio_meta.get("sample_rate")
+        else:
+            live_audio_meta.update(
+                {"path": None, "sample_rate": None, "duration_seconds": 0.0, "session_id": None}
+            )
+
+    asr_audio_path = live_asr_audio_meta.get("path")
+    if asr_audio_path:
+        path = Path(str(asr_audio_path))
+        if path.exists():
+            downloads["audio_16k"] = "/api/live/download/audio_16k"
+            state_copy["audio_16k_duration_seconds"] = float(
+                live_asr_audio_meta.get("duration_seconds") or 0.0
+            )
+            state_copy["audio_16k_sample_rate"] = live_asr_audio_meta.get("sample_rate")
+        else:
+            live_asr_audio_meta.update(
+                {"path": None, "sample_rate": None, "duration_seconds": 0.0, "session_id": None}
+            )
+
+    diagnostics_path = live_diagnostics_meta.get("path")
+    if diagnostics_path:
+        path = Path(str(diagnostics_path))
+        if path.exists():
+            downloads["diagnostics"] = "/api/live/download/diagnostics"
+        else:
+            live_diagnostics_meta.update({"path": None, "session_id": None})
+
+    if downloads:
+        state_copy["downloads"] = downloads
     return state_copy
 
 
@@ -360,13 +525,41 @@ def resample_audio(audio: np.ndarray, source_rate: int, target_rate: int) -> np.
     return np.interp(target_positions, source_positions, source_audio).astype(np.float32)
 
 
-def capture_to_mono(frame: np.ndarray) -> np.ndarray:
-    if frame.ndim == 1:
-        return frame.astype(np.float32, copy=False)
-    if frame.ndim != 2:
-        return np.asarray(frame, dtype=np.float32).reshape(-1)
+def normalize_capture_audio(frame: np.ndarray) -> np.ndarray:
+    samples = np.asarray(frame)
+    if samples.size == 0:
+        return np.empty((0,), dtype=np.float32)
 
-    channels = frame.astype(np.float32, copy=False)
+    if np.issubdtype(samples.dtype, np.integer):
+        info = np.iinfo(samples.dtype)
+        scale = float(max(abs(int(info.min)), int(info.max)))
+        if scale <= 0.0:
+            return np.zeros_like(samples, dtype=np.float32)
+        normalized = samples.astype(np.float32) / scale
+    else:
+        normalized = samples.astype(np.float32, copy=False)
+
+    normalized = np.nan_to_num(normalized, nan=0.0, posinf=0.0, neginf=0.0)
+    peak = float(np.max(np.abs(normalized))) if normalized.size else 0.0
+    if peak > 1.5:
+        if peak <= 40_000.0:
+            normalized = normalized / 32_768.0
+        elif peak <= 2_400_000_000.0:
+            normalized = normalized / 2_147_483_648.0
+        else:
+            normalized = normalized / peak
+
+    return np.clip(normalized, -1.0, 1.0).astype(np.float32, copy=False)
+
+
+def capture_to_mono(frame: np.ndarray) -> np.ndarray:
+    normalized = normalize_capture_audio(frame)
+    if normalized.ndim == 1:
+        return normalized
+    if normalized.ndim != 2:
+        return normalized.reshape(-1)
+
+    channels = normalized
     if channels.shape[1] <= 1:
         return channels[:, 0]
 
@@ -532,10 +725,13 @@ def transcribe_live_chunk(
     condition_on_previous_text: bool = False,
     vad_filter: bool = True,
     language: str | None = None,
+    on_resampled_chunk: Callable[[np.ndarray], None] | None = None,
 ) -> list[dict[str, Any]]:
     chunk = resample_audio(raw_chunk, source_rate, LIVE_TARGET_SAMPLE_RATE)
     if chunk.size == 0:
         return []
+    if on_resampled_chunk is not None:
+        on_resampled_chunk(chunk)
 
     segments_iter, _ = model.transcribe(
         chunk,
@@ -571,9 +767,260 @@ def run_live_transcription(
 ) -> None:
     global live_thread, live_stop_event
 
+    session_started_at = time.time()
+    source_rate_for_session: int | None = None
+    session_outcome = "stopped"
+    session_error: str | None = None
+
+    stats_lock = threading.Lock()
+    stats: dict[str, Any] = {
+        "frame_chunks_received": 0,
+        "frame_samples_received": 0,
+        "frame_queue_max_depth": 0,
+        "transcription_queue_max_depth": 0,
+        "transcribe_chunks_total": 0,
+        "transcribe_chunks_with_text": 0,
+        "emitted_segments_total": 0,
+        "dropped_frame_chunks": 0,
+        "dropped_transcription_chunks": 0,
+        "dropped_capture_artifact_chunks": 0,
+        "dropped_asr_artifact_chunks": 0,
+        "asr_audio_chunks_enqueued": 0,
+        "level_event_count": 0,
+        "level_rms_sum": 0.0,
+        "level_rms_max": 0.0,
+        "level_peak_max": 0.0,
+        "level_dbfs_min": None,
+        "level_dbfs_max": LIVE_LEVEL_FLOOR_DBFS,
+        "level_dbfs_last": LIVE_LEVEL_FLOOR_DBFS,
+    }
+
+    frame_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=1024)
+    last_level_event = 0.0
+    audio_queue: queue.Queue[np.ndarray | None] | None = None
+    audio_writer_thread: threading.Thread | None = None
+    audio_writer_errors: list[Exception] = []
+    audio_samples_written = 0
+    audio_file_path: Path | None = None
+    audio_source_rate = 0
+
+    asr_audio_queue: queue.Queue[np.ndarray | None] | None = None
+    asr_audio_writer_thread: threading.Thread | None = None
+    asr_audio_writer_errors: list[Exception] = []
+    asr_audio_samples_written = 0
+    asr_audio_file_path: Path | None = None
+
+    capture_writer_finished = False
+    asr_writer_finished = False
+    capture_writer_error_message: str | None = None
+    asr_writer_error_message: str | None = None
+
     def emit_live_metrics(**updates: Any) -> None:
         metrics_payload = update_live_metrics(**updates)
         push_live_event({"type": "live_metrics", "metrics": metrics_payload})
+
+    def start_audio_capture_writer(sample_rate: int) -> None:
+        nonlocal audio_queue, audio_writer_thread, audio_file_path, audio_source_rate, audio_samples_written
+        audio_source_rate = int(sample_rate)
+        audio_samples_written = 0
+        audio_file_path = LIVE_CAPTURE_DIR / f"live-{session_id}.wav"
+        audio_queue = queue.Queue(maxsize=2048)
+
+        def writer_worker() -> None:
+            nonlocal audio_samples_written
+            assert audio_queue is not None
+            assert audio_file_path is not None
+            try:
+                with wave.open(str(audio_file_path), "wb") as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(audio_source_rate)
+                    while True:
+                        try:
+                            packet = audio_queue.get(timeout=0.25)
+                        except queue.Empty:
+                            if stop_event.is_set():
+                                continue
+                            continue
+                        if packet is None:
+                            break
+
+                        pcm = np.clip(packet, -1.0, 1.0)
+                        pcm_i16 = (pcm * 32767.0).astype(np.int16)
+                        wav_file.writeframes(pcm_i16.tobytes())
+                        audio_samples_written += int(packet.shape[0])
+            except Exception as exc:  # pragma: no cover - filesystem/environment specific
+                audio_writer_errors.append(exc)
+                stop_event.set()
+
+        audio_writer_thread = threading.Thread(
+            target=writer_worker,
+            daemon=True,
+            name="live-audio-writer-thread",
+        )
+        audio_writer_thread.start()
+
+    def finish_audio_capture_writer() -> None:
+        nonlocal audio_queue, audio_writer_thread, audio_file_path
+        if audio_queue is not None:
+            try:
+                audio_queue.put_nowait(None)
+            except queue.Full:
+                try:
+                    audio_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    audio_queue.put_nowait(None)
+                except queue.Full:
+                    pass
+
+        if audio_writer_thread is not None:
+            audio_writer_thread.join(timeout=30.0)
+
+        if audio_writer_errors:
+            raise RuntimeError(f"Failed to write live audio capture: {audio_writer_errors[0]}")
+        if audio_file_path is None:
+            return
+
+        duration = (audio_samples_written / audio_source_rate) if audio_source_rate > 0 else 0.0
+        if duration <= 0.0:
+            try:
+                if audio_file_path.exists():
+                    audio_file_path.unlink()
+            except Exception:
+                pass
+            return
+
+        set_live_audio_artifact(
+            path=audio_file_path,
+            sample_rate=audio_source_rate,
+            duration_seconds=duration,
+            session_id=session_id,
+        )
+
+    def start_asr_audio_writer() -> None:
+        nonlocal asr_audio_queue, asr_audio_writer_thread, asr_audio_file_path, asr_audio_samples_written
+        asr_audio_samples_written = 0
+        asr_audio_file_path = LIVE_CAPTURE_DIR / f"live-{session_id}.whisper-16k.wav"
+        asr_audio_queue = queue.Queue(maxsize=1024)
+
+        def writer_worker() -> None:
+            nonlocal asr_audio_samples_written
+            assert asr_audio_queue is not None
+            assert asr_audio_file_path is not None
+            try:
+                with wave.open(str(asr_audio_file_path), "wb") as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(LIVE_TARGET_SAMPLE_RATE)
+                    while True:
+                        try:
+                            packet = asr_audio_queue.get(timeout=0.25)
+                        except queue.Empty:
+                            if stop_event.is_set():
+                                continue
+                            continue
+                        if packet is None:
+                            break
+
+                        pcm = np.clip(packet, -1.0, 1.0)
+                        pcm_i16 = (pcm * 32767.0).astype(np.int16)
+                        wav_file.writeframes(pcm_i16.tobytes())
+                        asr_audio_samples_written += int(packet.shape[0])
+            except Exception as exc:  # pragma: no cover - filesystem/environment specific
+                asr_audio_writer_errors.append(exc)
+
+        asr_audio_writer_thread = threading.Thread(
+            target=writer_worker,
+            daemon=True,
+            name="live-asr-audio-writer-thread",
+        )
+        asr_audio_writer_thread.start()
+
+    def finish_asr_audio_writer() -> str | None:
+        nonlocal asr_audio_queue, asr_audio_writer_thread, asr_audio_file_path
+        try:
+            if asr_audio_queue is not None:
+                try:
+                    asr_audio_queue.put_nowait(None)
+                except queue.Full:
+                    try:
+                        asr_audio_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        asr_audio_queue.put_nowait(None)
+                    except queue.Full:
+                        pass
+
+            if asr_audio_writer_thread is not None:
+                asr_audio_writer_thread.join(timeout=30.0)
+
+            if asr_audio_writer_errors:
+                return f"Failed to write 16 kHz Whisper debug audio: {asr_audio_writer_errors[0]}"
+            if asr_audio_file_path is None:
+                return None
+
+            duration = asr_audio_samples_written / LIVE_TARGET_SAMPLE_RATE
+            if duration <= 0.0:
+                try:
+                    if asr_audio_file_path.exists():
+                        asr_audio_file_path.unlink()
+                except Exception:
+                    pass
+                return None
+
+            set_live_asr_audio_artifact(
+                path=asr_audio_file_path,
+                sample_rate=LIVE_TARGET_SAMPLE_RATE,
+                duration_seconds=duration,
+                session_id=session_id,
+            )
+            return None
+        except Exception as exc:  # pragma: no cover - filesystem/environment specific
+            return f"Failed to finalize 16 kHz Whisper debug audio: {exc}"
+
+    def cleanup_writers(raise_capture_error: bool) -> None:
+        nonlocal capture_writer_finished, asr_writer_finished
+        nonlocal capture_writer_error_message, asr_writer_error_message
+
+        if not capture_writer_finished:
+            try:
+                finish_audio_capture_writer()
+            except Exception as exc:
+                if capture_writer_error_message is None:
+                    capture_writer_error_message = str(exc)
+                if raise_capture_error:
+                    raise
+            finally:
+                capture_writer_finished = True
+
+        if not asr_writer_finished:
+            asr_error = finish_asr_audio_writer()
+            if asr_error and asr_writer_error_message is None:
+                asr_writer_error_message = asr_error
+            asr_writer_finished = True
+
+    def enqueue_asr_audio_chunk(chunk: np.ndarray) -> None:
+        if chunk.size == 0 or asr_audio_queue is None:
+            return
+        packet = chunk.copy()
+        with stats_lock:
+            stats["asr_audio_chunks_enqueued"] += 1
+        try:
+            asr_audio_queue.put_nowait(packet)
+        except queue.Full:
+            try:
+                asr_audio_queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                asr_audio_queue.put_nowait(packet)
+            except queue.Full:
+                return
+            with stats_lock:
+                stats["dropped_asr_artifact_chunks"] += 1
 
     try:
         model, _ = load_model(model_name)
@@ -617,11 +1064,7 @@ def run_live_transcription(
             }
         )
 
-        frame_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=1024)
-        dropped_frame_chunks = 0
-        dropped_transcription_chunks = 0
-        dropped_lock = threading.Lock()
-        last_level_event = 0.0
+        start_asr_audio_writer()
 
         def maybe_emit_level(frame: np.ndarray, force: bool = False) -> None:
             nonlocal last_level_event
@@ -632,14 +1075,31 @@ def run_live_transcription(
             if frame.size == 0:
                 return
 
-            peak = float(np.max(np.abs(frame)))
-            rms = float(np.sqrt(np.mean(np.square(frame, dtype=np.float32))))
+            safe_frame = np.nan_to_num(frame.astype(np.float32, copy=False), nan=0.0, posinf=0.0, neginf=0.0)
+            peak = float(np.max(np.abs(safe_frame)))
+            rms = float(np.sqrt(np.mean(np.square(safe_frame, dtype=np.float32))))
+            if not np.isfinite(rms):
+                rms = 0.0
+            if not np.isfinite(peak):
+                peak = 0.0
             if rms <= 1e-9:
                 dbfs = LIVE_LEVEL_FLOOR_DBFS
             else:
                 dbfs = float(max(LIVE_LEVEL_FLOOR_DBFS, min(0.0, 20.0 * np.log10(rms))))
 
             last_level_event = now
+            with stats_lock:
+                stats["level_event_count"] += 1
+                stats["level_rms_sum"] += rms
+                stats["level_rms_max"] = max(float(stats["level_rms_max"]), rms)
+                stats["level_peak_max"] = max(float(stats["level_peak_max"]), peak)
+                if stats["level_dbfs_min"] is None:
+                    stats["level_dbfs_min"] = dbfs
+                    stats["level_dbfs_max"] = dbfs
+                else:
+                    stats["level_dbfs_min"] = min(float(stats["level_dbfs_min"]), dbfs)
+                    stats["level_dbfs_max"] = max(float(stats["level_dbfs_max"]), dbfs)
+                stats["level_dbfs_last"] = dbfs
             emit_live_metrics(
                 input_level_rms=rms,
                 input_level_peak=peak,
@@ -647,11 +1107,28 @@ def run_live_transcription(
             )
 
         def push_frame(frame: np.ndarray) -> None:
-            nonlocal dropped_frame_chunks
             if frame.size == 0:
                 return
 
             maybe_emit_level(frame)
+            with stats_lock:
+                stats["frame_chunks_received"] += 1
+                stats["frame_samples_received"] += int(frame.shape[0])
+
+            if audio_queue is not None:
+                try:
+                    audio_queue.put_nowait(frame.copy())
+                except queue.Full:
+                    try:
+                        audio_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        audio_queue.put_nowait(frame.copy())
+                    except queue.Full:
+                        pass
+                    with stats_lock:
+                        stats["dropped_capture_artifact_chunks"] += 1
 
             try:
                 frame_queue.put_nowait(frame.copy())
@@ -665,14 +1142,17 @@ def run_live_transcription(
                 except queue.Full:
                     return
 
-                with dropped_lock:
-                    dropped_frame_chunks += 1
-                    drop_count = dropped_frame_chunks
+                with stats_lock:
+                    stats["dropped_frame_chunks"] += 1
+                    drop_count = int(stats["dropped_frame_chunks"])
                 if drop_count == 1 or drop_count % 25 == 0:
                     status_payload = update_live_state(
                         message=f"Capture backlog detected ({drop_count} dropped frame chunks)."
                     )
                     push_live_event({"type": "live_state", "state": status_payload})
+            frame_depth = frame_queue.qsize()
+            with stats_lock:
+                stats["frame_queue_max_depth"] = max(int(stats["frame_queue_max_depth"]), frame_depth)
 
         def emit_segments(
             raw_chunk: np.ndarray,
@@ -683,6 +1163,8 @@ def run_live_transcription(
             vad_filter: bool,
             emit_from: float,
         ) -> None:
+            with stats_lock:
+                stats["transcribe_chunks_total"] += 1
             segments = transcribe_live_chunk(
                 model=model,
                 raw_chunk=raw_chunk,
@@ -693,7 +1175,11 @@ def run_live_transcription(
                 condition_on_previous_text=condition_on_previous_text,
                 vad_filter=vad_filter,
                 language=language,
+                on_resampled_chunk=enqueue_asr_audio_chunk,
             )
+            if segments:
+                with stats_lock:
+                    stats["transcribe_chunks_with_text"] += 1
             for segment in segments:
                 if float(segment["end"]) <= (emit_from + 0.02):
                     continue
@@ -702,6 +1188,8 @@ def run_live_transcription(
                 appended, live_snapshot = append_live_segment(
                     start=segment["start"], end=segment["end"], text=segment["text"]
                 )
+                with stats_lock:
+                    stats["emitted_segments_total"] += 1
                 push_live_event(
                     {
                         "type": "segment",
@@ -761,8 +1249,6 @@ def run_live_transcription(
                 )
 
         def process_buffered_hq(source_rate: int, capture_done: threading.Event | None = None) -> None:
-            nonlocal dropped_transcription_chunks
-
             chunk_samples = max(1, int(source_rate * LIVE_BUFFERED_CHUNK_SECONDS))
             overlap_samples = max(0, int(source_rate * LIVE_BUFFERED_OVERLAP_SECONDS))
             overlap_samples = min(overlap_samples, chunk_samples - 1)
@@ -789,15 +1275,19 @@ def run_live_transcription(
                     (chunk_samples / source_rate) if chunk_index == 0 else (step_samples / source_rate)
                 )
                 remaining_seconds = max(0.0, (chunk_samples - pending.shape[0]) / source_rate)
+                queue_depth = transcription_queue.qsize()
                 last_buffer_metrics_event = now
+                with stats_lock:
+                    stats["transcription_queue_max_depth"] = max(
+                        int(stats["transcription_queue_max_depth"]), queue_depth
+                    )
                 emit_live_metrics(
                     next_buffer_update_seconds=remaining_seconds,
                     buffer_interval_seconds=interval_seconds,
-                    buffer_queue_depth=transcription_queue.qsize(),
+                    buffer_queue_depth=queue_depth,
                 )
 
             def enqueue_transcription_chunk(chunk_data: np.ndarray, chunk_start: float, emit_from: float) -> None:
-                nonlocal dropped_transcription_chunks
                 payload = {
                     "chunk": chunk_data.copy(),
                     "chunk_start": float(chunk_start),
@@ -815,9 +1305,9 @@ def run_live_transcription(
                     except queue.Full:
                         return
 
-                    with dropped_lock:
-                        dropped_transcription_chunks += 1
-                        drop_count = dropped_transcription_chunks
+                    with stats_lock:
+                        stats["dropped_transcription_chunks"] += 1
+                        drop_count = int(stats["dropped_transcription_chunks"])
                     if drop_count == 1 or drop_count % 10 == 0:
                         status_payload = update_live_state(
                             message=(
@@ -907,6 +1397,8 @@ def run_live_transcription(
             capture_done = threading.Event()
             capture_error: list[Exception] = []
             source_rate = 48_000
+            source_rate_for_session = source_rate
+            start_audio_capture_writer(sample_rate=source_rate)
 
             def loopback_capture_worker() -> None:
                 com_initialized = initialize_com_for_thread()
@@ -943,6 +1435,8 @@ def run_live_transcription(
             device_index, channels, source_rate, resolved_label = resolve_live_mic_device(
                 selected_device_id
             )
+            source_rate_for_session = int(source_rate)
+            start_audio_capture_writer(sample_rate=source_rate)
 
             if resolved_label != selected_device_label:
                 status_payload = update_live_state(
@@ -974,6 +1468,7 @@ def run_live_transcription(
                 else:
                     process_low_latency(source_rate=source_rate)
 
+        cleanup_writers(raise_capture_error=True)
         emit_live_metrics(
             input_level_rms=0.0,
             input_level_peak=0.0,
@@ -998,6 +1493,12 @@ def run_live_transcription(
         )
         push_live_event({"type": "live_state", "state": state_payload})
     except Exception as exc:
+        session_outcome = "error"
+        session_error = str(exc)
+        try:
+            cleanup_writers(raise_capture_error=False)
+        except Exception:
+            pass
         emit_live_metrics(
             input_level_rms=0.0,
             input_level_peak=0.0,
@@ -1022,6 +1523,98 @@ def run_live_transcription(
         )
         push_live_event({"type": "live_state", "state": state_payload})
     finally:
+        try:
+            cleanup_writers(raise_capture_error=False)
+        except Exception:
+            pass
+
+        with stats_lock:
+            stats_snapshot = dict(stats)
+
+        capture_duration_seconds = (audio_samples_written / audio_source_rate) if audio_source_rate > 0 else 0.0
+        asr_duration_seconds = asr_audio_samples_written / LIVE_TARGET_SAMPLE_RATE
+        level_events = int(stats_snapshot.get("level_event_count", 0) or 0)
+        rms_sum = float(stats_snapshot.get("level_rms_sum", 0.0) or 0.0)
+        rms_avg = (rms_sum / level_events) if level_events > 0 else 0.0
+        total_segment_count = len(get_live_segments_copy())
+
+        diagnostics_payload: dict[str, Any] = {
+            "session_id": session_id,
+            "status": session_outcome,
+            "error": session_error,
+            "source": source,
+            "mode": mode,
+            "capture_mode": capture_mode,
+            "model": model_name,
+            "language": language,
+            "device_id": selected_device_id,
+            "device_label": selected_device_label,
+            "base_offset_seconds": float(base_offset),
+            "started_at": session_started_at,
+            "ended_at": time.time(),
+            "duration_seconds": max(0.0, time.time() - session_started_at),
+            "sample_rates": {
+                "source_hz": source_rate_for_session,
+                "target_hz": LIVE_TARGET_SAMPLE_RATE,
+            },
+            "audio": {
+                "capture_samples": int(audio_samples_written),
+                "capture_duration_seconds": float(capture_duration_seconds),
+                "asr_samples_16k": int(asr_audio_samples_written),
+                "asr_duration_seconds": float(asr_duration_seconds),
+            },
+            "chunks": {
+                "capture_frames_received": int(stats_snapshot.get("frame_chunks_received", 0) or 0),
+                "capture_samples_received": int(stats_snapshot.get("frame_samples_received", 0) or 0),
+                "transcribe_requests": int(stats_snapshot.get("transcribe_chunks_total", 0) or 0),
+                "transcribe_requests_with_text": int(
+                    stats_snapshot.get("transcribe_chunks_with_text", 0) or 0
+                ),
+                "segments_emitted": int(stats_snapshot.get("emitted_segments_total", 0) or 0),
+                "segments_total_after_session": int(total_segment_count),
+                "asr_audio_chunks_enqueued": int(stats_snapshot.get("asr_audio_chunks_enqueued", 0) or 0),
+            },
+            "drops": {
+                "frame_queue_drops": int(stats_snapshot.get("dropped_frame_chunks", 0) or 0),
+                "buffered_queue_drops": int(stats_snapshot.get("dropped_transcription_chunks", 0) or 0),
+                "capture_artifact_queue_drops": int(
+                    stats_snapshot.get("dropped_capture_artifact_chunks", 0) or 0
+                ),
+                "asr_artifact_queue_drops": int(stats_snapshot.get("dropped_asr_artifact_chunks", 0) or 0),
+            },
+            "queues": {
+                "frame_queue_max_depth": int(stats_snapshot.get("frame_queue_max_depth", 0) or 0),
+                "transcription_queue_max_depth": int(
+                    stats_snapshot.get("transcription_queue_max_depth", 0) or 0
+                ),
+            },
+            "levels": {
+                "events": level_events,
+                "rms_avg": float(rms_avg),
+                "rms_max": float(stats_snapshot.get("level_rms_max", 0.0) or 0.0),
+                "peak_max": float(stats_snapshot.get("level_peak_max", 0.0) or 0.0),
+                "dbfs_min": (
+                    float(stats_snapshot["level_dbfs_min"])
+                    if stats_snapshot.get("level_dbfs_min") is not None
+                    else LIVE_LEVEL_FLOOR_DBFS
+                ),
+                "dbfs_max": float(stats_snapshot.get("level_dbfs_max", LIVE_LEVEL_FLOOR_DBFS)),
+                "dbfs_last": float(stats_snapshot.get("level_dbfs_last", LIVE_LEVEL_FLOOR_DBFS)),
+            },
+            "writer_errors": {
+                "capture": capture_writer_error_message,
+                "asr_16k": asr_writer_error_message,
+            },
+        }
+
+        try:
+            diagnostics_path = LIVE_CAPTURE_DIR / f"live-{session_id}.diagnostics.json"
+            diagnostics_path.write_text(json.dumps(diagnostics_payload, indent=2), encoding="utf-8")
+            set_live_diagnostics_artifact(path=diagnostics_path, session_id=session_id)
+        except Exception:
+            clear_live_diagnostics_artifact(delete_file=False)
+
+        push_live_event({"type": "live_state", "state": build_live_state_response()})
         with live_state_lock:
             live_thread = None
             live_stop_event = None
@@ -1334,6 +1927,14 @@ def start_live(request: LiveStartRequest) -> dict[str, Any]:
 
         if mode == "new":
             live_segments.clear()
+        clear_paths = [
+            live_audio_meta.get("path"),
+            live_asr_audio_meta.get("path"),
+            live_diagnostics_meta.get("path"),
+        ]
+        live_audio_meta.update({"path": None, "sample_rate": None, "duration_seconds": 0.0, "session_id": None})
+        live_asr_audio_meta.update({"path": None, "sample_rate": None, "duration_seconds": 0.0, "session_id": None})
+        live_diagnostics_meta.update({"path": None, "session_id": None})
 
         base_offset = float(live_segments[-1]["end"]) if live_segments else 0.0
         session_id = uuid.uuid4().hex
@@ -1368,6 +1969,16 @@ def start_live(request: LiveStartRequest) -> dict[str, Any]:
             }
         )
         state_payload = dict(live_state)
+
+    for clear_path in clear_paths:
+        if not clear_path:
+            continue
+        try:
+            stale_path = Path(str(clear_path))
+            if stale_path.exists():
+                stale_path.unlink()
+        except Exception:
+            pass
 
     thread = threading.Thread(
         target=run_live_transcription,
@@ -1415,6 +2026,40 @@ def stop_live() -> dict[str, Any]:
 
 @app.get("/api/live/download/{kind}")
 def download_live_artifact(kind: str) -> Response:
+    if kind == "audio":
+        artifact = get_live_audio_artifact_copy()
+        audio_path_raw = artifact.get("path")
+        if not audio_path_raw:
+            raise HTTPException(status_code=409, detail="No live audio capture is available to download.")
+        audio_path = Path(str(audio_path_raw))
+        if not audio_path.exists():
+            clear_live_audio_artifact(delete_file=False)
+            raise HTTPException(status_code=404, detail="Live audio capture is missing.")
+        return FileResponse(audio_path, media_type="audio/wav", filename=audio_path.name)
+    if kind == "audio_16k":
+        artifact = get_live_asr_audio_artifact_copy()
+        audio_path_raw = artifact.get("path")
+        if not audio_path_raw:
+            raise HTTPException(
+                status_code=409,
+                detail="No 16 kHz Whisper-input debug audio is available to download.",
+            )
+        audio_path = Path(str(audio_path_raw))
+        if not audio_path.exists():
+            clear_live_asr_audio_artifact(delete_file=False)
+            raise HTTPException(status_code=404, detail="16 kHz Whisper-input debug audio is missing.")
+        return FileResponse(audio_path, media_type="audio/wav", filename=audio_path.name)
+    if kind == "diagnostics":
+        artifact = get_live_diagnostics_artifact_copy()
+        diagnostics_path_raw = artifact.get("path")
+        if not diagnostics_path_raw:
+            raise HTTPException(status_code=409, detail="No live diagnostics dump is available to download.")
+        diagnostics_path = Path(str(diagnostics_path_raw))
+        if not diagnostics_path.exists():
+            clear_live_diagnostics_artifact(delete_file=False)
+            raise HTTPException(status_code=404, detail="Live diagnostics dump is missing.")
+        return FileResponse(diagnostics_path, media_type="application/json", filename=diagnostics_path.name)
+
     segments = get_live_segments_copy()
     if not segments:
         raise HTTPException(status_code=409, detail="No live transcript is available to download.")

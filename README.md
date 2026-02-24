@@ -1,75 +1,65 @@
 # Speech-to-Text Meeting Helper
 
-Local speech-to-text app built with FastAPI + `faster-whisper` and a browser UI.
+Local speech-to-text run on the GPU with simple browser UI and player/transcript reader.  Able to transcribe pre-recorded audio files or live audio streamed on the computer.
 
-![progress bar](readme_images/STT-progressbar.gif)
+### Transcription of pre-existing local audio file
 
-## Features
+![local transcription](readme_images/file-transcription.gif)
 
-- File transcription jobs (`/api/jobs`)
-  - drag-and-drop upload
-  - model selection (`tiny`, `base`, `small`, `medium`, `large-v3`)
-  - TXT + SRT outputs
-  - synced player/transcript view
-- Live transcription (`/api/live/*`, `/ws/live`)
-  - microphone or Windows system loopback capture
-  - `low_latency` and `buffered_hq` capture modes
-  - websocket segment streaming
-  - append-to-current vs new session
-- Live diagnostics and debug artifacts
-  - input level meter (`dBFS`) + buffered countdown + queue depth
-  - captured input WAV download (`/api/live/download/audio`)
-  - 16 kHz Whisper-input WAV download (`/api/live/download/audio_16k`)
-  - per-session diagnostics JSON download (`/api/live/download/diagnostics`)
-- Local playback mode (no server transcription)
-  - `Upload Existing Audio + SRT`
+### Live transcription of background podcast audio
 
-GPU-first model loading behavior:
-- tries `cuda` + `float16` first
-- falls back to `cpu` + `int8`
+![live transcription](readme_images/live-transcription.gif)
+
+The transcript can be downloaded as a .txt or .srt for synchronized captioning.  Uses GPU-first fallback behavior with the smallest model taking ~1 min to transcribe a ~1 hour mp3 on my RTX 3080
+
+Built with `faster-whisper` and `FastAPI` for the backend and `React` for the frontend.
+
+---
+
+Model times on RTX 3080 for a 1 hour mp3:
+| model  | time |
+| ------------- | ------------- |
+| tiny  | 0 min 34 s |
+| small  | 0 min 57 s |
+| base  | 0 min 39 s |
+| medium  | 2 min 27 s |
+| large-v3 | 7 min 15 s |
+
+Note that most of the time is from loading the model — reusing the same model for multiple files results in comparable times across all models.
+
+
+I'm not seeing where the actual models are stored during a cursory search, but after experimenting with all 5 models (ending with large-v3), the size of my project is still under 600 MB.
+
+
+It is unclear why the base model is slightly slower than the tiny model, but the difference is too small for me to want to explore.  All models seemed to report .srt content with a desync of a few seconds.
+
+Both the tiny and large-v3 models seem to have done a perfect job with a recording of strongly-accented English speaker who was using several theoretical chemistry terms.  I'm not sure what the returns are supposed to be...maybe the heavier model is more tolerant of background noise or overlapping speakers?
+
+---
 
 ## Setup
+
+### Install dependencies:
 
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-## Run
+### Start server:
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000`.
+### Open web UI:
 
-## File Workflow
-
-1. Drop/select an audio file.
-2. Pick model + export folder.
-3. Click `Start Transcription`.
-4. Download TXT/SRT and use the synced player/transcript panel.
-
-## Live Workflow
-
-1. Select live source (`Microphone` or `System Audio (Loopback)`).
-2. Select capture mode (`Buffered HQ` or `Low Latency`).
-3. Select device, model, language, and start mode (`append` or `new`).
-4. Click `Start Live Transcription`.
-5. Stop capture and download artifacts as needed:
-   - transcript TXT/SRT
-   - captured source WAV
-   - 16 kHz Whisper-input WAV
-   - diagnostics JSON
-
-## Quick API Checks
-
-```powershell
-irm http://127.0.0.1:8000/api/live/state | ConvertTo-Json -Depth 6
+```text
+http://127.0.0.1:8000
 ```
 
-## Data Paths
+## Expansion Ideas
 
-- uploads: `data/uploads`
-- file outputs: `data/outputs/<folder>`
-- live captures + diagnostics: `data/live_captures`
+ -  diarization
+ -  microphone + system audio
+ -  post-processing: summaries, action items, etc.

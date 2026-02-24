@@ -10,6 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
       rel="stylesheet"
     />
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
@@ -27,112 +28,121 @@
           <input id="fileInput" type="file" accept="audio/*" hidden />
           <input id="localAudioInput" type="file" accept="audio/*" hidden />
           <input id="localSrtInput" type="file" accept=".srt,.txt,text/plain" hidden />
-          <button type="button" id="dropZone" class="dropzone">
-            <span class="drop-title">Drop audio here</span>
-            <span class="drop-subtitle">or click to choose a file</span>
-            <span class="drop-file" id="fileName">No file selected</span>
-          </button>
-
-          <div class="controls">
-            <label class="field">
-              <span>Model</span>
-              <select id="modelSelect" name="model">
-                <option value="small" selected>small (recommended)</option>
-                <option value="tiny">tiny</option>
-                <option value="base">base</option>
-                <option value="medium">medium</option>
-                <option value="large-v3">large-v3</option>
-              </select>
-            </label>
-
-            <label class="field">
-              <span>Export Folder</span>
-              <input id="exportFolder" type="text" name="export_folder" value="default" />
-            </label>
-
-            <button id="startBtn" type="submit" class="action">Start Transcription</button>
+          <div class="method-switch" role="group" aria-label="Transcription method">
+            <button id="fileModeBtn" type="button" class="mode-btn active">File Transcription</button>
+            <button id="liveModeBtn" type="button" class="mode-btn">Live Transcription</button>
           </div>
 
-          <div class="alt-tools">
-            <button id="loadExistingBtn" type="button" class="secondary-action">Upload Existing Audio + SRT</button>
-            <span id="localPairName" class="helper-text">No local audio/SRT pair loaded</span>
-          </div>
+          <div id="fileModePanel" class="mode-panel">
+            <button type="button" id="dropZone" class="dropzone">
+              <span class="drop-title">Drop audio here</span>
+              <span class="drop-subtitle">or click to choose a file</span>
+              <span class="drop-file" id="fileName">No file selected</span>
+            </button>
 
-          <div class="live-controls">
-            <label class="field">
-              <span>Live Source</span>
-              <select id="liveSource">
-                <option value="mic" selected>Microphone</option>
-                <option value="system">System Audio (Loopback)</option>
-              </select>
-            </label>
+            <div class="controls">
+              <label class="field">
+                <span>Model</span>
+                <select id="modelSelect" name="model">
+                  <option value="small" selected>small (recommended)</option>
+                  <option value="tiny">tiny</option>
+                  <option value="base">base</option>
+                  <option value="medium">medium</option>
+                  <option value="large-v3">large-v3</option>
+                </select>
+              </label>
 
-            <label class="field">
-              <span>Capture Mode</span>
-              <select id="liveCaptureMode">
-                <option value="buffered_hq" selected>Buffered HQ (best quality)</option>
-                <option value="low_latency">Low Latency (faster text)</option>
-              </select>
-            </label>
+              <label class="field">
+                <span>Export Folder</span>
+                <input id="exportFolder" type="text" name="export_folder" value="default" />
+              </label>
 
-            <label class="field">
-              <span>Live Device</span>
-              <select id="liveDevice"></select>
-            </label>
-
-            <label class="field">
-              <span>On Start</span>
-              <select id="liveMode">
-                <option value="append" selected>Continue existing text</option>
-                <option value="new">Start new transcript</option>
-              </select>
-            </label>
-
-            <label class="field">
-              <span>Live Model</span>
-              <select id="liveModel">
-                <option value="small" selected>small (recommended)</option>
-                <option value="tiny">tiny (lowest quality)</option>
-                <option value="base">base</option>
-                <option value="medium">medium</option>
-                <option value="large-v3">large-v3 (best quality)</option>
-              </select>
-            </label>
-
-            <label class="field">
-              <span>Live Language</span>
-              <select id="liveLanguage">
-                <option value="en" selected>English (recommended)</option>
-                <option value="auto">Auto Detect</option>
-              </select>
-            </label>
-
-            <div class="field live-preload">
-              <span>Model Warmup</span>
-              <button id="livePreloadBtn" type="button" class="secondary-action">Pre-load Selected Model</button>
-              <span id="livePreloadStatus" class="helper-text">No live model pre-loaded in this session</span>
+              <button id="startBtn" type="submit" class="action">Start Transcription</button>
             </div>
 
-            <button id="liveToggleBtn" type="button" class="action live-toggle">Start Live Transcription</button>
+            <div class="alt-tools">
+              <button id="loadExistingBtn" type="button" class="secondary-action">Upload Existing Audio + SRT</button>
+              <span id="localPairName" class="helper-text">No local audio/SRT pair loaded</span>
+            </div>
           </div>
 
-          <div class="live-troubleshoot">
-            <div class="live-meter">
-              <div class="live-metric-top">
-                <span>Input Level</span>
-                <strong id="liveLevelDbfs">-90 dBFS</strong>
+          <div id="liveModePanel" class="mode-panel hidden">
+            <div class="live-controls">
+              <label class="field">
+                <span>Live Source</span>
+                <select id="liveSource">
+                  <option value="system" selected>System Audio (Loopback)</option>
+                  <option value="mic">Microphone</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Capture Mode</span>
+                <select id="liveCaptureMode">
+                  <option value="low_latency" selected>Low Latency (faster text)</option>
+                  <option value="buffered_hq">Buffered HQ (best quality)</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Live Device</span>
+                <select id="liveDevice"></select>
+              </label>
+
+              <label class="field">
+                <span>On Start</span>
+                <select id="liveMode">
+                  <option value="append" selected>Continue existing text</option>
+                  <option value="new">Start new transcript</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Live Model</span>
+                <select id="liveModel">
+                  <option value="small" selected>small (recommended)</option>
+                  <option value="tiny">tiny (lowest quality)</option>
+                  <option value="base">base</option>
+                  <option value="medium">medium</option>
+                  <option value="large-v3">large-v3 (best quality)</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Live Language</span>
+                <select id="liveLanguage">
+                  <option value="en" selected>English (recommended)</option>
+                  <option value="auto">Auto Detect</option>
+                </select>
+              </label>
+
+              <div class="field live-preload">
+                <span>Model Warmup</span>
+                <button id="livePreloadBtn" type="button" class="secondary-action">Pre-load Selected Model</button>
+                <span id="livePreloadStatus" class="helper-text">No live model pre-loaded in this session</span>
               </div>
-              <div class="live-meter-track">
-                <div id="liveLevelBar" class="live-meter-bar"></div>
-              </div>
+
+              <button id="liveToggleBtn" type="button" class="action live-toggle">Start Live Transcription</button>
             </div>
-            <div class="live-buffer-eta">
-              <div class="live-metric-top">
-                <span>Next Buffer Update</span>
-                <strong id="bufferCountdownLabel">N/A</strong>
+
+            <div class="live-troubleshoot">
+              <div class="live-meter">
+                <div class="live-metric-top">
+                  <span>Input Level</span>
+                  <strong id="liveLevelDbfs">-90 dBFS</strong>
+                </div>
+                <div class="live-meter-track">
+                  <div id="liveLevelBar" class="live-meter-bar"></div>
+                </div>
               </div>
-              <div class="live-buffer-track">
-                <div id="bufferCountdownBar" class="live-buffer-bar"></div>
+              <div class="live-buffer-eta">
+                <div class="live-metric-top">
+                  <span>Next Buffer Update</span>
+                  <strong id="bufferCountdownLabel">N/A</strong>
+                </div>
+                <div class="live-buffer-track">
+                  <div id="bufferCountdownBar" class="live-buffer-bar"></div>
+                </div>
               </div>
             </div>
           </div>

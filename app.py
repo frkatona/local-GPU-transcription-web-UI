@@ -98,12 +98,12 @@ class Job:
 
 
 class LiveStartRequest(BaseModel):
-    source: str = "mic"
+    source: str = "system"
     mode: str = "new"
     model: str = LIVE_DEFAULT_MODEL
     language: str | None = LIVE_DEFAULT_LANGUAGE
     device_id: str | None = None
-    capture_mode: str = "buffered_hq"
+    capture_mode: str = "low_latency"
 
 
 class ModelPreloadRequest(BaseModel):
@@ -120,11 +120,11 @@ live_state_lock = threading.Lock()
 live_segments: list[dict[str, Any]] = []
 live_state: dict[str, Any] = {
     "status": "idle",
-    "source": "mic",
+    "source": "system",
     "mode": "new",
     "model": LIVE_DEFAULT_MODEL,
     "language": LIVE_DEFAULT_LANGUAGE,
-    "capture_mode": "buffered_hq",
+    "capture_mode": "low_latency",
     "device_id": None,
     "device_label": None,
     "message": "Idle",

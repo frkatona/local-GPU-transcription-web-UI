@@ -1,5 +1,6 @@
 const state = {
   file: null,
+  uiMode: "file",
   jobId: null,
   pollTimer: null,
   localAudioUrl: null,
@@ -38,6 +39,10 @@ const localSrtInput = document.getElementById("localSrtInput");
 const dropZone = document.getElementById("dropZone");
 const fileName = document.getElementById("fileName");
 const uploadForm = document.getElementById("uploadForm");
+const fileModeBtn = document.getElementById("fileModeBtn");
+const liveModeBtn = document.getElementById("liveModeBtn");
+const fileModePanel = document.getElementById("fileModePanel");
+const liveModePanel = document.getElementById("liveModePanel");
 const modelSelect = document.getElementById("modelSelect");
 const exportFolder = document.getElementById("exportFolder");
 const startBtn = document.getElementById("startBtn");
@@ -103,6 +108,14 @@ const formatElapsed = (seconds) => {
 
 const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
 
+const interpolate = (start, end, ratio) => start + ((end - start) * ratio);
+
+const liveLevelColor = (peak) => {
+  const level = clamp01(peak);
+  const hue = interpolate(150, 8, level);
+  return `hsl(${hue.toFixed(1)}, 72%, 48%)`;
+};
+
 const formatSecondsLabel = (seconds) => {
   const value = Number(seconds);
   if (!Number.isFinite(value) || value < 0) {
@@ -129,6 +142,7 @@ const renderLiveDiagnostics = () => {
   const peak = clamp01(state.liveMetrics.inputLevelPeak);
   const visualPeak = Math.pow(peak, 0.65);
   liveLevelBar.style.width = `${(visualPeak * 100).toFixed(1)}%`;
+  liveLevelBar.style.backgroundColor = liveLevelColor(peak);
 
   const dbfs = Number(state.liveMetrics.inputLevelDbfs);
   if (Number.isFinite(dbfs)) {
@@ -366,6 +380,30 @@ const setFile = (file) => {
 
 const isLiveActive = () => liveActiveStates.has(state.liveStatus);
 
+const setUIMode = (mode, options = {}) => {
+  const nextMode = mode === "live" ? "live" : "file";
+  const force = Boolean(options.force);
+  if (!force) {
+    if (state.livePending || state.livePreloadPending) {
+      return false;
+    }
+    if (isLiveActive() && nextMode !== "live") {
+      return false;
+    }
+    if (state.batchBusy && nextMode !== "file") {
+      return false;
+    }
+  }
+
+  state.uiMode = nextMode;
+  const isLiveMode = state.uiMode === "live";
+  fileModePanel.classList.toggle("hidden", isLiveMode);
+  liveModePanel.classList.toggle("hidden", !isLiveMode);
+  fileModeBtn.classList.toggle("active", !isLiveMode);
+  liveModeBtn.classList.toggle("active", isLiveMode);
+  return true;
+};
+
 const devicesForSource = (source) => {
   if (source === "system") {
     return state.liveDevices.system || [];
@@ -403,6 +441,10 @@ const populateLiveDeviceOptions = (source, preferredId = null) => {
 };
 
 const refreshControls = () => {
+  const lockMethodSwitch = state.livePending || state.livePreloadPending;
+  fileModeBtn.disabled = lockMethodSwitch || isLiveActive();
+  liveModeBtn.disabled = lockMethodSwitch || state.batchBusy;
+
   const lockFileActions = state.batchBusy || isLiveActive();
   startBtn.disabled = lockFileActions;
   loadExistingBtn.disabled = lockFileActions;
@@ -730,6 +772,9 @@ const getErrorDetail = async (response, fallback) => {
 const applyLiveState = (liveState, preferStatusMessage = true) => {
   const prevStatus = state.liveStatus;
   state.liveStatus = String(liveState.status || "idle");
+  if (isLiveActive()) {
+    setUIMode("live", { force: true });
+  }
 
   if (liveState.source && liveState.source !== liveSource.value) {
     liveSource.value = liveState.source;
@@ -954,6 +999,7 @@ const startLive = async () => {
   if (state.batchBusy) {
     return;
   }
+  setUIMode("live", { force: true });
   if (!liveDevice.value) {
     setStatus("ERROR", "Select a live capture device first.", 1);
     return;
@@ -1118,6 +1164,16 @@ localSrtInput.addEventListener("change", () => {
   void loadLocalPair();
 });
 
+fileModeBtn.addEventListener("click", () => {
+  setUIMode("file");
+  refreshControls();
+});
+
+liveModeBtn.addEventListener("click", () => {
+  setUIMode("live");
+  refreshControls();
+});
+
 liveSource.addEventListener("change", () => {
   populateLiveDeviceOptions(liveSource.value);
   refreshControls();
@@ -1189,5 +1245,6 @@ uploadForm.addEventListener("submit", async (event) => {
 connectLiveSocket();
 void loadLiveDevices().then(() => fetchLiveState());
 ensureDiagnosticsTicker();
+setUIMode("file", { force: true });
 renderLiveDiagnostics();
 refreshControls();

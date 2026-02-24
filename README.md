@@ -45,6 +45,17 @@ Outputs:
   - download buttons for TXT/SRT
   - audio player + clickable transcript timestamps
   - local `Upload Existing Audio + SRT` flow (no server transcription needed)
+  - live capture toggle:
+    - source: microphone or Windows system loopback
+    - capture mode:
+      - `Buffered HQ` (records rolling chunks and transcribes in background for better accuracy)
+      - `Low Latency` (faster text, lower quality)
+    - device picker for both microphone and system output
+    - live input-level meter for capture troubleshooting
+    - buffered update countdown + backlog indicator
+    - model pre-load button to warm the selected live model before starting
+    - mode: continue existing text or start new text
+    - live transcript download as TXT/SRT
 
 ## Setup
 
@@ -94,6 +105,21 @@ Alternative local playback workflow:
 1. Click `Upload Existing Audio + SRT`.
 2. Select an audio file, then select an `.srt` file.
 3. Use the player and auto-updating transcript text box.
+
+Live workflow (no Audacity):
+1. Choose `Live Source` (`Microphone` or `System Audio (Loopback)`).
+2. Choose `Capture Mode` (`Buffered HQ` recommended for meetings).
+3. Choose the exact `Live Device`.
+4. Choose `On Start` (`Continue existing text` or `Start new transcript`).
+5. (Optional) Click `Pre-load Selected Model`.
+6. Click `Start Live Transcription`.
+7. Watch `Input Level` and (for `Buffered HQ`) `Next Buffer Update` for troubleshooting.
+8. Click `Stop Live Transcription` when done, then download TXT/SRT.
+
+Notes:
+- System audio capture requires Windows WASAPI loopback support.
+- While live capture is active, file transcription is locked to avoid resource conflicts.
+- If you still see occasional discontinuity warnings, keep the selected output device stable and avoid changing default audio devices mid-session.
 
 ## Using `.srt` with VLC for closed-captioned listening:
 

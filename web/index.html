@@ -57,6 +57,77 @@
             <button id="loadExistingBtn" type="button" class="secondary-action">Upload Existing Audio + SRT</button>
             <span id="localPairName" class="helper-text">No local audio/SRT pair loaded</span>
           </div>
+
+          <div class="live-controls">
+            <label class="field">
+              <span>Live Source</span>
+              <select id="liveSource">
+                <option value="mic" selected>Microphone</option>
+                <option value="system">System Audio (Loopback)</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Capture Mode</span>
+              <select id="liveCaptureMode">
+                <option value="buffered_hq" selected>Buffered HQ (best quality)</option>
+                <option value="low_latency">Low Latency (faster text)</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Live Device</span>
+              <select id="liveDevice"></select>
+            </label>
+
+            <label class="field">
+              <span>On Start</span>
+              <select id="liveMode">
+                <option value="append" selected>Continue existing text</option>
+                <option value="new">Start new transcript</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Live Model</span>
+              <select id="liveModel">
+                <option value="tiny" selected>tiny (lowest latency)</option>
+                <option value="base">base</option>
+                <option value="small">small</option>
+                <option value="medium">medium</option>
+                <option value="large-v3">large-v3 (best quality)</option>
+              </select>
+            </label>
+
+            <div class="field live-preload">
+              <span>Model Warmup</span>
+              <button id="livePreloadBtn" type="button" class="secondary-action">Pre-load Selected Model</button>
+              <span id="livePreloadStatus" class="helper-text">No live model pre-loaded in this session</span>
+            </div>
+
+            <button id="liveToggleBtn" type="button" class="action live-toggle">Start Live Transcription</button>
+          </div>
+
+          <div class="live-troubleshoot">
+            <div class="live-meter">
+              <div class="live-metric-top">
+                <span>Input Level</span>
+                <strong id="liveLevelDbfs">-90 dBFS</strong>
+              </div>
+              <div class="live-meter-track">
+                <div id="liveLevelBar" class="live-meter-bar"></div>
+              </div>
+            </div>
+            <div class="live-buffer-eta">
+              <div class="live-metric-top">
+                <span>Next Buffer Update</span>
+                <strong id="bufferCountdownLabel">N/A</strong>
+              </div>
+              <div class="live-buffer-track">
+                <div id="bufferCountdownBar" class="live-buffer-bar"></div>
+              </div>
+            </div>
+          </div>
         </form>
       </section>
 

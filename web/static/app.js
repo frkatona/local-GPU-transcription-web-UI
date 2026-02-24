@@ -6,6 +6,30 @@ const state = {
   segments: [],
   lineElements: [],
   activeLineIndex: -1,
+  batchBusy: false,
+  livePending: false,
+  livePreloadPending: false,
+  liveStatus: "idle",
+  liveSocket: null,
+  liveDevices: {
+    mic: [],
+    system: [],
+  },
+  liveMetrics: {
+    inputLevelRms: 0,
+    inputLevelPeak: 0,
+    inputLevelDbfs: -90,
+    inputLevelUpdatedAt: null,
+    nextBufferUpdateSeconds: null,
+    bufferIntervalSeconds: null,
+    bufferQueueDepth: 0,
+    receivedAtMs: 0,
+  },
+  diagnosticsTimer: null,
+  localDownloadUrls: {
+    txt: null,
+    srt: null,
+  },
 };
 
 const fileInput = document.getElementById("fileInput");
@@ -19,6 +43,18 @@ const exportFolder = document.getElementById("exportFolder");
 const startBtn = document.getElementById("startBtn");
 const loadExistingBtn = document.getElementById("loadExistingBtn");
 const localPairName = document.getElementById("localPairName");
+const liveSource = document.getElementById("liveSource");
+const liveCaptureMode = document.getElementById("liveCaptureMode");
+const liveDevice = document.getElementById("liveDevice");
+const liveMode = document.getElementById("liveMode");
+const liveModel = document.getElementById("liveModel");
+const livePreloadBtn = document.getElementById("livePreloadBtn");
+const livePreloadStatus = document.getElementById("livePreloadStatus");
+const liveToggleBtn = document.getElementById("liveToggleBtn");
+const liveLevelBar = document.getElementById("liveLevelBar");
+const liveLevelDbfs = document.getElementById("liveLevelDbfs");
+const bufferCountdownLabel = document.getElementById("bufferCountdownLabel");
+const bufferCountdownBar = document.getElementById("bufferCountdownBar");
 const statusLabel = document.getElementById("statusLabel");
 const statusPercent = document.getElementById("statusPercent");
 const statusMessage = document.getElementById("statusMessage");
@@ -35,6 +71,8 @@ const transcriptList = document.getElementById("transcriptList");
 const currentTextBox = document.getElementById("currentTextBox");
 
 const busyStates = new Set(["queued", "running"]);
+const liveActiveStates = new Set(["starting", "running", "stopping"]);
+const defaultBufferedIntervalSeconds = 60;
 
 const formatTimestamp = (seconds) => {
   const total = Math.floor(Number(seconds));
@@ -55,6 +93,123 @@ const formatElapsed = (seconds) => {
   const mins = Math.floor(value / 60);
   const secs = Math.floor(value % 60);
   return `${mins}m ${String(secs).padStart(2, "0")}s`;
+};
+
+const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+
+const formatSecondsLabel = (seconds) => {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  if (value < 10) {
+    return `${value.toFixed(1)}s`;
+  }
+  return `${Math.round(value)}s`;
+};
+
+const getBufferedCountdownRemaining = () => {
+  const baseRemaining = state.liveMetrics.nextBufferUpdateSeconds;
+  if (!Number.isFinite(baseRemaining)) {
+    return null;
+  }
+  const ageSeconds = state.liveMetrics.receivedAtMs > 0
+    ? (performance.now() - state.liveMetrics.receivedAtMs) / 1000
+    : 0;
+  return Math.max(0, baseRemaining - ageSeconds);
+};
+
+const renderLiveDiagnostics = () => {
+  const peak = clamp01(state.liveMetrics.inputLevelPeak);
+  const visualPeak = Math.pow(peak, 0.65);
+  liveLevelBar.style.width = `${(visualPeak * 100).toFixed(1)}%`;
+
+  const dbfs = Number(state.liveMetrics.inputLevelDbfs);
+  if (Number.isFinite(dbfs)) {
+    liveLevelDbfs.textContent = `${dbfs.toFixed(1)} dBFS`;
+  } else {
+    liveLevelDbfs.textContent = "-90 dBFS";
+  }
+
+  const bufferedModeActive = liveCaptureMode.value === "buffered_hq"
+    && (state.liveStatus === "starting" || state.liveStatus === "running" || state.liveStatus === "stopping");
+  if (!bufferedModeActive) {
+    bufferCountdownLabel.textContent = "N/A";
+    bufferCountdownBar.style.width = "0%";
+    return;
+  }
+
+  const remaining = getBufferedCountdownRemaining();
+  const intervalRaw = Number(state.liveMetrics.bufferIntervalSeconds);
+  const interval = Number.isFinite(intervalRaw) && intervalRaw > 0
+    ? intervalRaw
+    : defaultBufferedIntervalSeconds;
+  const ratio = remaining === null ? 0 : (1 - Math.min(1, remaining / interval));
+  bufferCountdownBar.style.width = `${Math.max(0, ratio * 100).toFixed(1)}%`;
+
+  if (remaining === null) {
+    bufferCountdownLabel.textContent = "Preparing...";
+    return;
+  }
+
+  const queueDepth = Number(state.liveMetrics.bufferQueueDepth);
+  const base = formatSecondsLabel(remaining) || "0s";
+  bufferCountdownLabel.textContent = queueDepth > 0
+    ? `${base} (queue ${queueDepth})`
+    : base;
+};
+
+const applyLiveMetrics = (metrics) => {
+  if (!metrics || typeof metrics !== "object") {
+    return;
+  }
+  const hasOwn = (key) => Object.prototype.hasOwnProperty.call(metrics, key);
+
+  if (hasOwn("input_level_rms")) {
+    const value = Number(metrics.input_level_rms);
+    if (Number.isFinite(value)) {
+      state.liveMetrics.inputLevelRms = Math.max(0, value);
+    }
+  }
+  if (hasOwn("input_level_peak")) {
+    const value = Number(metrics.input_level_peak);
+    if (Number.isFinite(value)) {
+      state.liveMetrics.inputLevelPeak = clamp01(value);
+    }
+  }
+  if (hasOwn("input_level_dbfs")) {
+    const value = Number(metrics.input_level_dbfs);
+    if (Number.isFinite(value)) {
+      state.liveMetrics.inputLevelDbfs = value;
+    }
+  }
+  if (hasOwn("input_level_updated_at")) {
+    const value = Number(metrics.input_level_updated_at);
+    state.liveMetrics.inputLevelUpdatedAt = Number.isFinite(value) ? value : null;
+  }
+  if (hasOwn("next_buffer_update_seconds")) {
+    const value = Number(metrics.next_buffer_update_seconds);
+    state.liveMetrics.nextBufferUpdateSeconds = Number.isFinite(value) ? Math.max(0, value) : null;
+  }
+  if (hasOwn("buffer_interval_seconds")) {
+    const value = Number(metrics.buffer_interval_seconds);
+    state.liveMetrics.bufferIntervalSeconds = Number.isFinite(value) && value > 0 ? value : null;
+  }
+  if (hasOwn("buffer_queue_depth")) {
+    const value = Number(metrics.buffer_queue_depth);
+    state.liveMetrics.bufferQueueDepth = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+  }
+  state.liveMetrics.receivedAtMs = performance.now();
+  renderLiveDiagnostics();
+};
+
+const ensureDiagnosticsTicker = () => {
+  if (state.diagnosticsTimer) {
+    return;
+  }
+  state.diagnosticsTimer = window.setInterval(() => {
+    renderLiveDiagnostics();
+  }, 150);
 };
 
 const setProgress = (fraction) => {
@@ -85,15 +240,174 @@ const clearLocalAudioObjectUrl = () => {
   }
 };
 
+const revokeLocalDownloads = () => {
+  if (state.localDownloadUrls.txt) {
+    URL.revokeObjectURL(state.localDownloadUrls.txt);
+    state.localDownloadUrls.txt = null;
+  }
+  if (state.localDownloadUrls.srt) {
+    URL.revokeObjectURL(state.localDownloadUrls.srt);
+    state.localDownloadUrls.srt = null;
+  }
+};
+
+const clearDownloadLinks = () => {
+  revokeLocalDownloads();
+  downloadTxt.removeAttribute("href");
+  downloadSrt.removeAttribute("href");
+  downloadTxt.removeAttribute("download");
+  downloadSrt.removeAttribute("download");
+};
+
+const setServerDownloads = (downloads) => {
+  clearDownloadLinks();
+  if (!downloads) {
+    return;
+  }
+  downloadTxt.href = downloads.txt;
+  downloadSrt.href = downloads.srt;
+};
+
+const buildTxtFromSegments = (segments, title = "transcript") => {
+  const lines = ["# Transcript", `# Source: ${title}`, ""];
+  for (const segment of segments) {
+    lines.push(`[${formatTimestamp(segment.start)}] ${segment.text}`);
+  }
+  return `${lines.join("\n").trimEnd()}\n`;
+};
+
+const buildSrtFromSegments = (segments) => {
+  const toSrtTime = (seconds) => {
+    const totalMs = Math.max(0, Math.round(Number(seconds) * 1000));
+    const hours = Math.floor(totalMs / 3_600_000);
+    const minutes = Math.floor((totalMs % 3_600_000) / 60_000);
+    const secs = Math.floor((totalMs % 60_000) / 1000);
+    const ms = totalMs % 1000;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+  };
+
+  const lines = [];
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i];
+    lines.push(String(i + 1));
+    lines.push(`${toSrtTime(segment.start)} --> ${toSrtTime(segment.end)}`);
+    lines.push(segment.text);
+    lines.push("");
+  }
+  return `${lines.join("\n").trimEnd()}\n`;
+};
+
+const setLocalDownloadsFromSegments = (segments, stem = "transcript") => {
+  clearDownloadLinks();
+  if (!segments.length) {
+    return;
+  }
+
+  const txtBlob = new Blob([buildTxtFromSegments(segments, stem)], { type: "text/plain;charset=utf-8" });
+  const srtBlob = new Blob([buildSrtFromSegments(segments)], { type: "application/x-subrip;charset=utf-8" });
+  const txtUrl = URL.createObjectURL(txtBlob);
+  const srtUrl = URL.createObjectURL(srtBlob);
+
+  state.localDownloadUrls.txt = txtUrl;
+  state.localDownloadUrls.srt = srtUrl;
+
+  downloadTxt.href = txtUrl;
+  downloadSrt.href = srtUrl;
+  downloadTxt.download = `${stem}.txt`;
+  downloadSrt.download = `${stem}.srt`;
+};
+
 const setFile = (file) => {
   state.file = file;
   fileName.textContent = file ? file.name : "No file selected";
 };
 
-const setBusy = (busy) => {
-  startBtn.disabled = busy;
-  loadExistingBtn.disabled = busy;
-  startBtn.textContent = busy ? "Working..." : "Start Transcription";
+const isLiveActive = () => liveActiveStates.has(state.liveStatus);
+
+const devicesForSource = (source) => {
+  if (source === "system") {
+    return state.liveDevices.system || [];
+  }
+  return state.liveDevices.mic || [];
+};
+
+const populateLiveDeviceOptions = (source, preferredId = null) => {
+  const devices = devicesForSource(source);
+  liveDevice.innerHTML = "";
+
+  if (!devices.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = source === "system" ? "No system device found" : "No microphone found";
+    liveDevice.appendChild(option);
+    liveDevice.disabled = true;
+    return;
+  }
+
+  const targetId = preferredId
+    || devices.find((device) => device.default)?.id
+    || devices[0].id;
+
+  for (const device of devices) {
+    const option = document.createElement("option");
+    option.value = String(device.id);
+    option.textContent = device.label;
+    if (String(device.id) === String(targetId)) {
+      option.selected = true;
+    }
+    liveDevice.appendChild(option);
+  }
+  liveDevice.disabled = false;
+};
+
+const refreshControls = () => {
+  const lockFileActions = state.batchBusy || isLiveActive();
+  startBtn.disabled = lockFileActions;
+  loadExistingBtn.disabled = lockFileActions;
+  dropZone.disabled = lockFileActions;
+
+  const lockLiveButton = state.batchBusy || state.livePending || state.liveStatus === "stopping";
+  liveToggleBtn.disabled = lockLiveButton;
+
+  const lockLiveSelectors = state.batchBusy || isLiveActive() || state.livePending;
+  liveSource.disabled = lockLiveSelectors;
+  liveCaptureMode.disabled = lockLiveSelectors;
+  liveDevice.disabled = lockLiveSelectors || !devicesForSource(liveSource.value).length;
+  liveMode.disabled = lockLiveSelectors;
+  liveModel.disabled = lockLiveSelectors;
+  livePreloadBtn.disabled = lockLiveSelectors || state.livePreloadPending;
+  livePreloadBtn.textContent = state.livePreloadPending ? "Pre-loading..." : "Pre-load Selected Model";
+
+  if (state.batchBusy) {
+    startBtn.textContent = "Working...";
+  } else {
+    startBtn.textContent = "Start Transcription";
+  }
+
+  if (isLiveActive()) {
+    liveToggleBtn.textContent = state.liveStatus === "stopping" ? "Stopping..." : "Stop Live Transcription";
+    liveToggleBtn.classList.add("running");
+  } else {
+    liveToggleBtn.textContent = "Start Live Transcription";
+    liveToggleBtn.classList.remove("running");
+  }
+
+  renderLiveDiagnostics();
+};
+
+const setBatchBusy = (busy) => {
+  state.batchBusy = busy;
+  refreshControls();
+};
+
+const setLivePending = (pending) => {
+  state.livePending = pending;
+  refreshControls();
+};
+
+const setLivePreloadPending = (pending) => {
+  state.livePreloadPending = pending;
+  refreshControls();
 };
 
 const resetTranscript = () => {
@@ -106,8 +420,6 @@ const resetTranscript = () => {
 
 const resetResults = () => {
   resultPanel.classList.add("hidden");
-  downloadTxt.removeAttribute("href");
-  downloadSrt.removeAttribute("href");
   metaStatus.textContent = "-";
   metaDevice.textContent = "-";
   metaLanguage.textContent = "-";
@@ -115,6 +427,7 @@ const resetResults = () => {
   clearLocalAudioObjectUrl();
   audioPlayer.removeAttribute("src");
   audioPlayer.load();
+  clearDownloadLinks();
   resetTranscript();
 };
 
@@ -149,35 +462,49 @@ const findSegmentIndexAtTime = (seconds) => {
   for (let i = 0; i < state.segments.length; i += 1) {
     const current = state.segments[i];
     const next = state.segments[i + 1];
-    const segmentStart = Number(current.start);
-    const segmentEnd = Number.isFinite(Number(current.end))
+    const start = Number(current.start);
+    const end = Number.isFinite(Number(current.end))
       ? Number(current.end)
       : next
         ? Number(next.start)
         : Number.POSITIVE_INFINITY;
-    if (seconds >= segmentStart && seconds < segmentEnd) {
+    if (seconds >= start && seconds < end) {
       return i;
     }
   }
   return -1;
 };
 
-const normalizeSegments = (rawSegments) => {
-  const normalized = rawSegments
-    .map((segment) => ({
-      start: Number(segment.start),
-      end: Number(segment.end),
-      text: String(segment.text ?? "").trim(),
-    }))
-    .filter((segment) => Number.isFinite(segment.start) && segment.text.length > 0)
-    .sort((a, b) => a.start - b.start);
-
-  return normalized.map((segment, i) => ({
-    index: i + 1,
+const normalizeSegments = (rawSegments) => rawSegments
+  .map((segment) => ({
+    start: Number(segment.start),
+    end: Number(segment.end),
+    text: String(segment.text ?? "").trim(),
+  }))
+  .filter((segment) => Number.isFinite(segment.start) && segment.text.length > 0)
+  .sort((a, b) => a.start - b.start)
+  .map((segment, index) => ({
+    index: index + 1,
     start: segment.start,
     end: Number.isFinite(segment.end) ? segment.end : segment.start,
     text: segment.text,
   }));
+
+const buildSegmentRow = (segment, rowIndex) => {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "line";
+  row.dataset.index = String(segment.index);
+  row.dataset.start = String(segment.start);
+  row.innerHTML = `<span class="line-time">${formatTimestamp(segment.start)}</span><span class="line-text">${segment.text}</span>`;
+  row.addEventListener("click", () => {
+    if (audioPlayer.src) {
+      audioPlayer.currentTime = Number(segment.start);
+      void audioPlayer.play();
+    }
+    setActiveLine(rowIndex, true);
+  });
+  return row;
 };
 
 const renderSegments = (rawSegments) => {
@@ -190,31 +517,38 @@ const renderSegments = (rawSegments) => {
     return;
   }
 
+  transcriptList.innerHTML = "";
   const fragment = document.createDocumentFragment();
   for (let i = 0; i < segments.length; i += 1) {
-    const segment = segments[i];
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "line";
-    row.dataset.index = String(segment.index);
-    row.dataset.start = String(segment.start);
-    row.innerHTML = `<span class="line-time">${formatTimestamp(segment.start)}</span><span class="line-text">${segment.text}</span>`;
-    row.addEventListener("click", () => {
-      audioPlayer.currentTime = Number(segment.start);
-      setActiveLine(i, true);
-      void audioPlayer.play();
-    });
+    const row = buildSegmentRow(segments[i], i);
     state.lineElements.push(row);
     fragment.appendChild(row);
   }
   transcriptList.appendChild(fragment);
 };
 
+const appendSegment = (rawSegment) => {
+  const normalized = normalizeSegments([rawSegment])[0];
+  if (!normalized) {
+    return;
+  }
+  if (transcriptList.textContent === "No segments found.") {
+    transcriptList.innerHTML = "";
+  }
+
+  normalized.index = state.segments.length + 1;
+  state.segments.push(normalized);
+  const row = buildSegmentRow(normalized, state.segments.length - 1);
+  state.lineElements.push(row);
+  transcriptList.appendChild(row);
+  setActiveLine(state.segments.length - 1, true);
+};
+
 const parseSrtTimestamp = (value) => {
   const normalized = value.trim().replace(",", ".");
   const parts = normalized.split(":");
   if (parts.length !== 3) {
-    return NaN;
+    return Number.NaN;
   }
   const hours = Number(parts[0]);
   const minutes = Number(parts[1]);
@@ -294,10 +628,7 @@ const loadSegmentsFromServer = async (segmentsUrl) => {
 const handleCompleted = async (job) => {
   applyJobMeta(job);
   resultPanel.classList.remove("hidden");
-  if (job.downloads) {
-    downloadTxt.href = job.downloads.txt;
-    downloadSrt.href = job.downloads.srt;
-  }
+  setServerDownloads(job.downloads || null);
   clearLocalAudioObjectUrl();
   if (job.audio_url) {
     audioPlayer.src = job.audio_url;
@@ -324,14 +655,12 @@ const pollJob = async () => {
     }
 
     clearPolling();
-    setBusy(false);
+    setBatchBusy(false);
     if (job.status === "completed") {
       const elapsedFromServer = Number(job.transcription_seconds);
       const fallbackElapsed = Number(job.updated_at) - Number(job.created_at);
       const elapsed = formatElapsed(Number.isFinite(elapsedFromServer) ? elapsedFromServer : fallbackElapsed);
-      const completionMessage = elapsed
-        ? `Transcription completed in ${elapsed}.`
-        : "Transcription completed.";
+      const completionMessage = elapsed ? `Transcription completed in ${elapsed}.` : "Transcription completed.";
       setStatus("COMPLETED", completionMessage, 1);
       await handleCompleted(job);
     } else {
@@ -341,9 +670,298 @@ const pollJob = async () => {
     }
   } catch (error) {
     clearPolling();
-    setBusy(false);
+    setBatchBusy(false);
     setStatus("ERROR", error instanceof Error ? error.message : "Unexpected error.", 1);
   }
+};
+
+const getErrorDetail = async (response, fallback) => {
+  try {
+    const payload = await response.json();
+    return payload?.detail || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const applyLiveState = (liveState, preferStatusMessage = true) => {
+  const prevStatus = state.liveStatus;
+  state.liveStatus = String(liveState.status || "idle");
+
+  if (liveState.source && liveState.source !== liveSource.value) {
+    liveSource.value = liveState.source;
+  }
+  if (liveState.model && liveState.model !== liveModel.value) {
+    liveModel.value = liveState.model;
+  }
+  if (liveState.capture_mode && liveState.capture_mode !== liveCaptureMode.value) {
+    liveCaptureMode.value = liveState.capture_mode;
+  }
+  if (liveState.device_id !== undefined) {
+    populateLiveDeviceOptions(liveSource.value, liveState.device_id || null);
+  }
+  applyLiveMetrics(liveState);
+
+  setLivePending(false);
+  refreshControls();
+
+  if (!state.batchBusy) {
+    if (state.liveStatus === "running") {
+      const sourceLabel = liveState.source === "system" ? "system audio" : "microphone";
+      const modeLabel = liveState.capture_mode === "buffered_hq" ? "buffered HQ" : "low latency";
+      if (preferStatusMessage) {
+        setStatus("LIVE", `Listening to ${sourceLabel} (${modeLabel})...`, 1);
+      }
+    } else if (state.liveStatus === "starting") {
+      if (preferStatusMessage) {
+        setStatus("LIVE", "Starting live transcription...", 1);
+      }
+    } else if (state.liveStatus === "stopping") {
+      if (preferStatusMessage) {
+        setStatus("LIVE", "Stopping live transcription...", 1);
+      }
+    } else if (state.liveStatus === "error") {
+      if (preferStatusMessage) {
+        setStatus("LIVE ERROR", liveState.error || liveState.message || "Live transcription failed.", 1);
+      }
+    } else if (state.liveStatus === "idle" && prevStatus !== "idle") {
+      if (preferStatusMessage) {
+        setStatus("READY", liveState.message || "Live transcription is idle.", 1);
+      }
+    }
+  }
+
+  if (liveState.segment_count !== undefined) {
+    metaSegments.textContent = String(liveState.segment_count);
+  }
+
+  if (state.liveStatus === "running" || state.liveStatus === "starting" || state.liveStatus === "stopping") {
+    resultPanel.classList.remove("hidden");
+    metaStatus.textContent = `live-${state.liveStatus}`;
+    metaDevice.textContent = liveState.device_label || (liveState.source === "system" ? "system loopback" : "microphone");
+    metaLanguage.textContent = "-";
+  } else if (state.liveStatus === "idle" && Number(liveState.segment_count || 0) > 0) {
+    resultPanel.classList.remove("hidden");
+    metaStatus.textContent = "live-idle";
+    metaDevice.textContent = liveState.device_label || (liveState.source === "system" ? "system loopback" : "microphone");
+    metaLanguage.textContent = "-";
+  } else if (state.liveStatus === "error") {
+    metaStatus.textContent = "live-error";
+  }
+
+  if (liveState.downloads) {
+    setServerDownloads(liveState.downloads);
+  } else if (state.liveStatus === "running" || state.liveStatus === "starting") {
+    clearDownloadLinks();
+  }
+};
+
+const fetchLiveSegments = async () => {
+  const response = await fetch("/api/live/segments");
+  if (!response.ok) {
+    return;
+  }
+  const segments = await response.json();
+  renderSegments(segments);
+  if (segments.length) {
+    resultPanel.classList.remove("hidden");
+    setActiveLine(segments.length - 1, true);
+  }
+};
+
+const fetchLiveState = async () => {
+  const response = await fetch("/api/live/state");
+  if (!response.ok) {
+    return;
+  }
+  const payload = await response.json();
+  if (payload?.state) {
+    applyLiveState(payload.state, false);
+    if (Number(payload.state.segment_count || 0) > 0) {
+      await fetchLiveSegments();
+    }
+  }
+};
+
+const loadLiveDevices = async () => {
+  try {
+    const response = await fetch("/api/live/devices");
+    if (!response.ok) {
+      throw new Error("Failed to load live devices.");
+    }
+    const payload = await response.json();
+    state.liveDevices.mic = Array.isArray(payload.mic) ? payload.mic : [];
+    state.liveDevices.system = Array.isArray(payload.system) ? payload.system : [];
+    populateLiveDeviceOptions(liveSource.value);
+    refreshControls();
+  } catch {
+    state.liveDevices.mic = [];
+    state.liveDevices.system = [];
+    populateLiveDeviceOptions(liveSource.value);
+    refreshControls();
+  }
+};
+
+const handleLiveSegmentMessage = (segment, liveState) => {
+  if (state.batchBusy) {
+    return;
+  }
+  resultPanel.classList.remove("hidden");
+  appendSegment(segment);
+  metaStatus.textContent = "live-running";
+  metaDevice.textContent = liveState?.device_label
+    || (liveSource.value === "system" ? "system loopback" : "microphone");
+  metaLanguage.textContent = "-";
+  metaSegments.textContent = String(state.segments.length);
+  clearDownloadLinks();
+  if (liveState) {
+    applyLiveState(liveState, false);
+  }
+};
+
+const connectLiveSocket = () => {
+  if (state.liveSocket && (state.liveSocket.readyState === WebSocket.OPEN || state.liveSocket.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+
+  const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${wsProtocol}://${window.location.host}/ws/live`);
+  state.liveSocket = ws;
+
+  ws.addEventListener("message", (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      if (payload.type === "live_state" && payload.state) {
+        applyLiveState(payload.state, true);
+      } else if (payload.type === "live_metrics" && payload.metrics) {
+        applyLiveMetrics(payload.metrics);
+      } else if (payload.type === "live_snapshot" && Array.isArray(payload.segments) && !state.batchBusy) {
+        if (payload.segments.length) {
+          resultPanel.classList.remove("hidden");
+          renderSegments(payload.segments);
+        }
+      } else if (payload.type === "segment" && payload.segment) {
+        handleLiveSegmentMessage(payload.segment, payload.state);
+      }
+    } catch {
+      // Ignore malformed websocket events.
+    }
+  });
+
+  ws.addEventListener("close", () => {
+    state.liveSocket = null;
+    if (isLiveActive() && !state.batchBusy) {
+      setStatus("LIVE", "Live stream connection lost. Refreshing state...", 1);
+      window.setTimeout(() => {
+        void fetchLiveState();
+        connectLiveSocket();
+      }, 1200);
+    }
+  });
+};
+
+const preloadSelectedLiveModel = async () => {
+  if (state.batchBusy || isLiveActive() || state.livePending) {
+    return;
+  }
+
+  setLivePreloadPending(true);
+  livePreloadStatus.textContent = `Pre-loading ${liveModel.value}...`;
+  try {
+    const response = await fetch("/api/models/preload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: liveModel.value }),
+    });
+    if (!response.ok) {
+      const detail = await getErrorDetail(response, "Failed to preload model.");
+      throw new Error(detail);
+    }
+
+    const payload = await response.json();
+    const loadSeconds = Number(payload.load_seconds);
+    const loadLabel = Number.isFinite(loadSeconds)
+      ? (loadSeconds < 1 ? `${Math.round(loadSeconds * 1000)}ms` : `${loadSeconds.toFixed(1)}s`)
+      : null;
+    const cachePrefix = payload.cached_before ? "Already cached" : "Loaded";
+    livePreloadStatus.textContent = `${cachePrefix}: ${payload.model} on ${payload.device} (${payload.compute_type})${loadLabel ? ` in ${loadLabel}` : ""}`;
+    if (!state.batchBusy) {
+      setStatus("READY", `Model ${payload.model} pre-loaded.`, 1);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to preload model.";
+    livePreloadStatus.textContent = message;
+    if (!state.batchBusy) {
+      setStatus("ERROR", message, 1);
+    }
+  } finally {
+    setLivePreloadPending(false);
+  }
+};
+
+const startLive = async () => {
+  if (state.batchBusy) {
+    return;
+  }
+  if (!liveDevice.value) {
+    setStatus("ERROR", "Select a live capture device first.", 1);
+    return;
+  }
+  setLivePending(true);
+  const modeLabel = liveCaptureMode.value === "buffered_hq" ? "buffered HQ" : "low latency";
+  setStatus("LIVE", `Starting ${modeLabel} transcription...`, 1);
+
+  if (liveMode.value === "new") {
+    clearPolling();
+    state.jobId = null;
+    resetResults();
+    resultPanel.classList.remove("hidden");
+  }
+
+  connectLiveSocket();
+
+  const response = await fetch("/api/live/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source: liveSource.value,
+      mode: liveMode.value,
+      model: liveModel.value,
+      device_id: liveDevice.value || null,
+      capture_mode: liveCaptureMode.value,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await getErrorDetail(response, "Failed to start live transcription.");
+    setLivePending(false);
+    setStatus("ERROR", detail, 1);
+    throw new Error(detail);
+  }
+
+  const payload = await response.json();
+  if (payload?.state) {
+    applyLiveState(payload.state, true);
+    if (payload.state.mode === "append" && Number(payload.state.segment_count || 0) > 0) {
+      await fetchLiveSegments();
+    }
+  }
+};
+
+const stopLive = async () => {
+  setLivePending(true);
+  const response = await fetch("/api/live/stop", { method: "POST" });
+  if (!response.ok) {
+    const detail = await getErrorDetail(response, "Failed to stop live transcription.");
+    setLivePending(false);
+    setStatus("ERROR", detail, 1);
+    throw new Error(detail);
+  }
+  const payload = await response.json();
+  if (payload?.state) {
+    applyLiveState(payload.state, true);
+  }
+  setLivePending(false);
 };
 
 const loadLocalPair = async () => {
@@ -357,7 +975,7 @@ const loadLocalPair = async () => {
   clearPolling();
   state.jobId = null;
   resetResults();
-  setBusy(true);
+  setBatchBusy(true);
   setStatus("LOADING", "Loading local audio and SRT...", 0.2);
 
   try {
@@ -377,21 +995,30 @@ const loadLocalPair = async () => {
     metaDevice.textContent = "browser";
     metaLanguage.textContent = "-";
     metaSegments.textContent = String(parsed.length);
-    downloadTxt.removeAttribute("href");
-    downloadSrt.removeAttribute("href");
     localPairName.textContent = `${audioFile.name} + ${srtFile.name}`;
+
+    const stem = srtFile.name.replace(/\.[^/.]+$/, "") || "local-transcript";
+    setLocalDownloadsFromSegments(parsed, stem);
     setStatus("READY", "Loaded local audio and SRT for playback.", 1);
   } catch (error) {
     setStatus("ERROR", error instanceof Error ? error.message : "Failed to load local files.", 1);
   } finally {
-    setBusy(false);
+    setBatchBusy(false);
   }
 };
 
-dropZone.addEventListener("click", () => fileInput.click());
+dropZone.addEventListener("click", () => {
+  if (!startBtn.disabled) {
+    fileInput.click();
+  }
+});
+
 fileInput.addEventListener("change", () => setFile(fileInput.files?.[0] ?? null));
 
 dropZone.addEventListener("dragover", (event) => {
+  if (startBtn.disabled) {
+    return;
+  }
   event.preventDefault();
   dropZone.classList.add("drag-over");
 });
@@ -399,6 +1026,9 @@ dropZone.addEventListener("dragover", (event) => {
 dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
 
 dropZone.addEventListener("drop", (event) => {
+  if (startBtn.disabled) {
+    return;
+  }
   event.preventDefault();
   dropZone.classList.remove("drag-over");
   const file = event.dataTransfer?.files?.[0];
@@ -409,7 +1039,7 @@ dropZone.addEventListener("drop", (event) => {
 });
 
 audioPlayer.addEventListener("timeupdate", () => {
-  if (!state.segments.length) {
+  if (!state.segments.length || !audioPlayer.src) {
     return;
   }
   const activeIndex = findSegmentIndexAtTime(audioPlayer.currentTime);
@@ -417,6 +1047,10 @@ audioPlayer.addEventListener("timeupdate", () => {
 });
 
 loadExistingBtn.addEventListener("click", () => {
+  if (isLiveActive()) {
+    setStatus("LIVE", "Stop live transcription before loading local files.", 1);
+    return;
+  }
   localAudioInput.value = "";
   localSrtInput.value = "";
   localAudioInput.click();
@@ -432,8 +1066,39 @@ localSrtInput.addEventListener("change", () => {
   void loadLocalPair();
 });
 
+liveSource.addEventListener("change", () => {
+  populateLiveDeviceOptions(liveSource.value);
+  refreshControls();
+});
+
+liveModel.addEventListener("change", () => {
+  if (!state.livePreloadPending) {
+    livePreloadStatus.textContent = "No live model pre-loaded in this session";
+  }
+});
+
+livePreloadBtn.addEventListener("click", async () => {
+  await preloadSelectedLiveModel();
+});
+
+liveToggleBtn.addEventListener("click", async () => {
+  try {
+    if (isLiveActive()) {
+      await stopLive();
+    } else {
+      await startLive();
+    }
+  } catch {
+    // Status already updated in helpers.
+  }
+});
+
 uploadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (isLiveActive()) {
+    setStatus("LIVE", "Stop live transcription before uploading a file.", 1);
+    return;
+  }
   if (!state.file) {
     setStatus("IDLE", "Select an audio file first.", 0);
     return;
@@ -442,7 +1107,7 @@ uploadForm.addEventListener("submit", async (event) => {
   clearPolling();
   state.jobId = null;
   resetResults();
-  setBusy(true);
+  setBatchBusy(true);
   setStatus("UPLOADING", "Uploading audio...", 0.02);
 
   const formData = new FormData();
@@ -453,7 +1118,8 @@ uploadForm.addEventListener("submit", async (event) => {
   try {
     const response = await fetch("/api/jobs", { method: "POST", body: formData });
     if (!response.ok) {
-      throw new Error("Failed to submit transcription job.");
+      const detail = await getErrorDetail(response, "Failed to submit transcription job.");
+      throw new Error(detail);
     }
     const payload = await response.json();
     state.jobId = payload.job_id;
@@ -463,7 +1129,13 @@ uploadForm.addEventListener("submit", async (event) => {
       void pollJob();
     }, 900);
   } catch (error) {
-    setBusy(false);
+    setBatchBusy(false);
     setStatus("ERROR", error instanceof Error ? error.message : "Unexpected error.", 1);
   }
 });
+
+connectLiveSocket();
+void loadLiveDevices().then(() => fetchLiveState());
+ensureDiagnosticsTicker();
+renderLiveDiagnostics();
+refreshControls();

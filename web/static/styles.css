@@ -218,6 +218,77 @@ input[type="text"]:focus-visible,
   flex-wrap: wrap;
 }
 
+.live-controls {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.live-preload {
+  align-self: end;
+}
+
+.live-preload .secondary-action {
+  width: 100%;
+}
+
+.live-troubleshoot {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.live-meter,
+.live-buffer-eta {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.live-metric-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+.live-metric-top strong {
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  color: #1b3136;
+  font-size: 0.82rem;
+}
+
+.live-meter-track,
+.live-buffer-track {
+  position: relative;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(20, 31, 37, 0.13);
+}
+
+.live-meter-bar,
+.live-buffer-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  transition: width 120ms linear;
+}
+
+.live-meter-bar {
+  background: linear-gradient(90deg, #2ebf91, #f3c969, #d85d4f);
+}
+
+.live-buffer-bar {
+  background: linear-gradient(90deg, #178f98, #2a9d58);
+}
+
 .secondary-action {
   min-height: 40px;
   border-radius: 10px;
@@ -237,6 +308,10 @@ input[type="text"]:focus-visible,
 .secondary-action:disabled {
   cursor: wait;
   opacity: 0.7;
+}
+
+.live-toggle.running {
+  background: linear-gradient(120deg, #9d2f2f, #c54b35);
 }
 
 .helper-text {
@@ -461,6 +536,10 @@ audio {
   }
 
   .controls {
+    grid-template-columns: 1fr;
+  }
+
+  .live-controls {
     grid-template-columns: 1fr;
   }
 

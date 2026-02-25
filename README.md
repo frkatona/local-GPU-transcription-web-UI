@@ -12,7 +12,7 @@ Local speech-to-text run on the GPU with simple browser UI and player/transcript
 
 The transcript can be downloaded as a .txt or .srt for synchronized captioning.  Uses GPU-first fallback behavior with the smallest model taking ~1 min to transcribe a ~1 hour mp3 on my RTX 3080
 
-Built with `faster-whisper` and `FastAPI` for the backend and `React` for the frontend.
+Built with `faster-whisper` and `FastAPI` for the backend and vanilla JS on the front.
 
 ---
 
@@ -34,8 +34,6 @@ Model times on RTX 3080 for a 1 hour mp3:
 Note that most of the time is from loading the model — reusing the same model for multiple files results in comparable times across all models.
 
 I'm not seeing where the actual models are stored during a cursory search, but after experimenting with all 5 models (ending with large-v3), the size of my project is still under 600 MB.  
-
-
 
 ---
 

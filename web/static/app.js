@@ -45,6 +45,8 @@ const fileModePanel = document.getElementById("fileModePanel");
 const liveModePanel = document.getElementById("liveModePanel");
 const modelSelect = document.getElementById("modelSelect");
 const exportFolder = document.getElementById("exportFolder");
+const diarizeToggle = document.getElementById("diarizeToggle");
+const diarizeSpeakers = document.getElementById("diarizeSpeakers");
 const startBtn = document.getElementById("startBtn");
 const loadExistingBtn = document.getElementById("loadExistingBtn");
 const localPairName = document.getElementById("localPairName");
@@ -54,6 +56,8 @@ const liveDevice = document.getElementById("liveDevice");
 const liveMode = document.getElementById("liveMode");
 const liveModel = document.getElementById("liveModel");
 const liveLanguage = document.getElementById("liveLanguage");
+const liveDiarizeToggle = document.getElementById("liveDiarizeToggle");
+const liveDiarizeSpeakers = document.getElementById("liveDiarizeSpeakers");
 const livePreloadBtn = document.getElementById("livePreloadBtn");
 const livePreloadStatus = document.getElementById("livePreloadStatus");
 const liveToggleBtn = document.getElementById("liveToggleBtn");
@@ -91,6 +95,26 @@ const formatTimestamp = (seconds) => {
   const minutes = Math.floor((total % 3600) / 60);
   const secs = total % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+};
+
+const formatSegmentText = (segment) => {
+  const text = String(segment.text ?? "").trim();
+  const speaker = String(segment.speaker ?? "").trim();
+  if (!speaker) {
+    return text;
+  }
+  return `${speaker}: ${text}`;
+};
+
+const setMetaSegments = (segmentCount, speakerCount = null) => {
+  const count = Number(segmentCount);
+  const safeCount = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0;
+  const speakers = Number(speakerCount);
+  if (Number.isFinite(speakers) && speakers > 0) {
+    metaSegments.textContent = `${safeCount} (${Math.trunc(speakers)} speakers)`;
+    return;
+  }
+  metaSegments.textContent = String(safeCount);
 };
 
 const formatElapsed = (seconds) => {
@@ -327,7 +351,7 @@ const setLivePlayerAudio = (audioUrl, sessionId = null) => {
 const buildTxtFromSegments = (segments, title = "transcript") => {
   const lines = ["# Transcript", `# Source: ${title}`, ""];
   for (const segment of segments) {
-    lines.push(`[${formatTimestamp(segment.start)}] ${segment.text}`);
+    lines.push(`[${formatTimestamp(segment.start)}] ${formatSegmentText(segment)}`);
   }
   return `${lines.join("\n").trimEnd()}\n`;
 };
@@ -347,7 +371,7 @@ const buildSrtFromSegments = (segments) => {
     const segment = segments[i];
     lines.push(String(i + 1));
     lines.push(`${toSrtTime(segment.start)} --> ${toSrtTime(segment.end)}`);
-    lines.push(segment.text);
+    lines.push(formatSegmentText(segment));
     lines.push("");
   }
   return `${lines.join("\n").trimEnd()}\n`;
@@ -446,20 +470,42 @@ const refreshControls = () => {
   liveModeBtn.disabled = lockMethodSwitch || state.batchBusy;
 
   const lockFileActions = state.batchBusy || isLiveActive();
+  modelSelect.disabled = lockFileActions;
+  exportFolder.disabled = lockFileActions;
   startBtn.disabled = lockFileActions;
   loadExistingBtn.disabled = lockFileActions;
   dropZone.disabled = lockFileActions;
+  if (diarizeToggle) {
+    diarizeToggle.disabled = lockFileActions;
+  }
+  if (diarizeSpeakers) {
+    diarizeSpeakers.disabled = lockFileActions || !(diarizeToggle && diarizeToggle.checked);
+  }
 
   const lockLiveButton = state.batchBusy || state.livePending || state.liveStatus === "stopping";
   liveToggleBtn.disabled = lockLiveButton;
 
   const lockLiveSelectors = state.batchBusy || isLiveActive() || state.livePending;
+  const liveDiarizationEligible = liveCaptureMode.value === "buffered_hq";
   liveSource.disabled = lockLiveSelectors;
   liveCaptureMode.disabled = lockLiveSelectors;
   liveDevice.disabled = lockLiveSelectors || !devicesForSource(liveSource.value).length;
   liveMode.disabled = lockLiveSelectors;
   liveModel.disabled = lockLiveSelectors;
   liveLanguage.disabled = lockLiveSelectors;
+  if (liveDiarizeToggle) {
+    if (!liveDiarizationEligible && !lockLiveSelectors) {
+      liveDiarizeToggle.checked = false;
+    }
+    liveDiarizeToggle.disabled = lockLiveSelectors || !liveDiarizationEligible;
+  }
+  if (liveDiarizeSpeakers) {
+    const speakersEnabled = liveDiarizationEligible && liveDiarizeToggle && liveDiarizeToggle.checked;
+    if (!speakersEnabled && !lockLiveSelectors) {
+      liveDiarizeSpeakers.value = "";
+    }
+    liveDiarizeSpeakers.disabled = lockLiveSelectors || !speakersEnabled;
+  }
   livePreloadBtn.disabled = lockLiveSelectors || state.livePreloadPending;
   livePreloadBtn.textContent = state.livePreloadPending ? "Pre-loading..." : "Pre-load Selected Model";
 
@@ -536,7 +582,7 @@ const setActiveLine = (lineIndex, scrollToLine = true) => {
 
   const activeButton = state.lineElements[lineIndex];
   activeButton.classList.add("active");
-  currentTextBox.value = state.segments[lineIndex].text;
+  currentTextBox.value = formatSegmentText(state.segments[lineIndex]);
 
   if (scrollToLine) {
     activeButton.scrollIntoView({ block: "nearest" });
@@ -565,6 +611,7 @@ const normalizeSegments = (rawSegments) => rawSegments
     start: Number(segment.start),
     end: Number(segment.end),
     text: String(segment.text ?? "").trim(),
+    speaker: String(segment.speaker ?? "").trim(),
   }))
   .filter((segment) => Number.isFinite(segment.start) && segment.text.length > 0)
   .sort((a, b) => a.start - b.start)
@@ -573,6 +620,7 @@ const normalizeSegments = (rawSegments) => rawSegments
     start: segment.start,
     end: Number.isFinite(segment.end) ? segment.end : segment.start,
     text: segment.text,
+    speaker: segment.speaker,
   }));
 
 const buildSegmentRow = (segment, rowIndex) => {
@@ -581,7 +629,28 @@ const buildSegmentRow = (segment, rowIndex) => {
   row.className = "line";
   row.dataset.index = String(segment.index);
   row.dataset.start = String(segment.start);
-  row.innerHTML = `<span class="line-time">${formatTimestamp(segment.start)}</span><span class="line-text">${segment.text}</span>`;
+
+  const timeLabel = document.createElement("span");
+  timeLabel.className = "line-time";
+  timeLabel.textContent = formatTimestamp(segment.start);
+
+  const body = document.createElement("span");
+  body.className = "line-meta";
+
+  if (segment.speaker) {
+    const speakerTag = document.createElement("span");
+    speakerTag.className = "speaker-tag";
+    speakerTag.textContent = segment.speaker;
+    body.appendChild(speakerTag);
+  }
+
+  const textLabel = document.createElement("span");
+  textLabel.className = "line-text";
+  textLabel.textContent = segment.text;
+  body.appendChild(textLabel);
+
+  row.appendChild(timeLabel);
+  row.appendChild(body);
   row.addEventListener("click", () => {
     if (audioPlayer.src) {
       audioPlayer.currentTime = Number(segment.start);
@@ -681,11 +750,23 @@ const parseSrtText = (srtText) => {
       continue;
     }
 
+    let speaker = "";
+    let cleanText = text;
+    const speakerMatch = text.match(/^(Speaker\s+\d+)\s*:\s*(.+)$/i);
+    if (speakerMatch) {
+      speaker = speakerMatch[1].trim();
+      cleanText = speakerMatch[2].trim();
+    }
+    if (!cleanText) {
+      continue;
+    }
+
     parsed.push({
       index: parsed.length + 1,
       start,
       end,
-      text,
+      text: cleanText,
+      speaker,
     });
   }
 
@@ -698,7 +779,7 @@ const applyJobMeta = (job) => {
   metaLanguage.textContent = job.language
     ? `${job.language} (${(Number(job.language_probability) * 100).toFixed(1)}%)`
     : "-";
-  metaSegments.textContent = String(job.segment_count ?? "-");
+  setMetaSegments(job.segment_count, job.speaker_count);
 };
 
 const loadSegmentsFromServer = async (segmentsUrl) => {
@@ -745,7 +826,12 @@ const pollJob = async () => {
       const elapsedFromServer = Number(job.transcription_seconds);
       const fallbackElapsed = Number(job.updated_at) - Number(job.created_at);
       const elapsed = formatElapsed(Number.isFinite(elapsedFromServer) ? elapsedFromServer : fallbackElapsed);
-      const completionMessage = elapsed ? `Transcription completed in ${elapsed}.` : "Transcription completed.";
+      let completionMessage = elapsed ? `Transcription completed in ${elapsed}.` : "Transcription completed.";
+      if (job.diarize && job.diarization_status === "completed" && Number(job.speaker_count) > 0) {
+        completionMessage = `${completionMessage} Speaker labels added.`;
+      } else if (job.diarize && job.diarization_status === "failed") {
+        completionMessage = `${completionMessage} Diarization failed; transcript generated without speaker labels.`;
+      }
       setStatus("COMPLETED", completionMessage, 1);
       await handleCompleted(job);
     } else {
@@ -790,6 +876,13 @@ const applyLiveState = (liveState, preferStatusMessage = true) => {
   if (liveState.capture_mode && liveState.capture_mode !== liveCaptureMode.value) {
     liveCaptureMode.value = liveState.capture_mode;
   }
+  if (Object.prototype.hasOwnProperty.call(liveState, "diarize") && liveDiarizeToggle) {
+    liveDiarizeToggle.checked = Boolean(liveState.diarize);
+  }
+  if (Object.prototype.hasOwnProperty.call(liveState, "diarization_speakers") && liveDiarizeSpeakers) {
+    const value = Number(liveState.diarization_speakers);
+    liveDiarizeSpeakers.value = Number.isFinite(value) && value > 0 ? String(Math.trunc(value)) : "";
+  }
   if (liveState.device_id !== undefined) {
     populateLiveDeviceOptions(liveSource.value, liveState.device_id || null);
   }
@@ -802,8 +895,19 @@ const applyLiveState = (liveState, preferStatusMessage = true) => {
     if (state.liveStatus === "running") {
       const sourceLabel = liveState.source === "system" ? "system audio" : "microphone";
       const modeLabel = liveState.capture_mode === "buffered_hq" ? "buffered HQ" : "low latency";
+      const diarizationEnabled = Boolean(liveState.diarize);
+      const diarizationStatus = String(liveState.diarization_status || "");
+      const diarizationSuffix = diarizationEnabled
+        ? (
+          diarizationStatus === "running"
+            ? " + diarization"
+            : diarizationStatus === "failed"
+              ? " (diarization failed)"
+              : ""
+        )
+        : "";
       if (preferStatusMessage) {
-        setStatus("LIVE", `Listening to ${sourceLabel} (${modeLabel})...`, 1);
+        setStatus("LIVE", `Listening to ${sourceLabel} (${modeLabel})${diarizationSuffix}...`, 1);
       }
     } else if (state.liveStatus === "starting") {
       if (preferStatusMessage) {
@@ -825,7 +929,7 @@ const applyLiveState = (liveState, preferStatusMessage = true) => {
   }
 
   if (liveState.segment_count !== undefined) {
-    metaSegments.textContent = String(liveState.segment_count);
+    setMetaSegments(liveState.segment_count, liveState.speaker_count);
   }
 
   if (state.liveStatus === "running" || state.liveStatus === "starting" || state.liveStatus === "stopping") {
@@ -908,7 +1012,7 @@ const handleLiveSegmentMessage = (segment, liveState) => {
   metaDevice.textContent = liveState?.device_label
     || (liveSource.value === "system" ? "system loopback" : "microphone");
   metaLanguage.textContent = "-";
-  metaSegments.textContent = String(state.segments.length);
+  setMetaSegments(state.segments.length, liveState?.speaker_count);
   clearDownloadLinks();
   if (liveState) {
     applyLiveState(liveState, false);
@@ -1004,9 +1108,29 @@ const startLive = async () => {
     setStatus("ERROR", "Select a live capture device first.", 1);
     return;
   }
+
+  const liveDiarizeEnabled = Boolean(liveDiarizeToggle && liveDiarizeToggle.checked);
+  let liveDiarizationSpeakers = null;
+  if (liveDiarizeEnabled && liveCaptureMode.value !== "buffered_hq") {
+    setStatus("ERROR", "Live diarization requires Buffered HQ mode.", 1);
+    return;
+  }
+  if (liveDiarizeEnabled && liveDiarizeSpeakers) {
+    const trimmed = liveDiarizeSpeakers.value.trim();
+    if (trimmed) {
+      const parsed = Number(trimmed);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 20) {
+        setStatus("ERROR", "Live expected speakers must be an integer from 1 to 20.", 1);
+        return;
+      }
+      liveDiarizationSpeakers = parsed;
+    }
+  }
+
   setLivePending(true);
   const modeLabel = liveCaptureMode.value === "buffered_hq" ? "buffered HQ" : "low latency";
-  setStatus("LIVE", `Starting ${modeLabel} transcription...`, 1);
+  const diarizationLabel = liveDiarizeEnabled ? " + diarization" : "";
+  setStatus("LIVE", `Starting ${modeLabel}${diarizationLabel} transcription...`, 1);
 
   if (liveMode.value === "new") {
     clearPolling();
@@ -1027,6 +1151,8 @@ const startLive = async () => {
       language: liveLanguage.value,
       device_id: liveDevice.value || null,
       capture_mode: liveCaptureMode.value,
+      diarize: liveDiarizeEnabled,
+      diarization_speakers: liveDiarizeEnabled ? liveDiarizationSpeakers : null,
     }),
   });
 
@@ -1179,6 +1305,10 @@ liveSource.addEventListener("change", () => {
   refreshControls();
 });
 
+liveCaptureMode.addEventListener("change", () => {
+  refreshControls();
+});
+
 liveModel.addEventListener("change", () => {
   if (!state.livePreloadPending) {
     livePreloadStatus.textContent = "No live model pre-loaded in this session";
@@ -1201,6 +1331,18 @@ liveToggleBtn.addEventListener("click", async () => {
   }
 });
 
+if (diarizeToggle) {
+  diarizeToggle.addEventListener("change", () => {
+    refreshControls();
+  });
+}
+
+if (liveDiarizeToggle) {
+  liveDiarizeToggle.addEventListener("change", () => {
+    refreshControls();
+  });
+}
+
 uploadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (isLiveActive()) {
@@ -1210,6 +1352,16 @@ uploadForm.addEventListener("submit", async (event) => {
   if (!state.file) {
     setStatus("IDLE", "Select an audio file first.", 0);
     return;
+  }
+  if (diarizeToggle && diarizeToggle.checked && diarizeSpeakers) {
+    const trimmed = diarizeSpeakers.value.trim();
+    if (trimmed) {
+      const value = Number(trimmed);
+      if (!Number.isInteger(value) || value < 1 || value > 20) {
+        setStatus("IDLE", "Expected speakers must be an integer from 1 to 20.", 0);
+        return;
+      }
+    }
   }
 
   clearPolling();
@@ -1222,6 +1374,14 @@ uploadForm.addEventListener("submit", async (event) => {
   formData.append("file", state.file);
   formData.append("model", modelSelect.value);
   formData.append("export_folder", exportFolder.value || "default");
+  const diarizeEnabled = Boolean(diarizeToggle && diarizeToggle.checked);
+  formData.append("diarize", diarizeEnabled ? "true" : "false");
+  if (diarizeEnabled && diarizeSpeakers) {
+    const trimmed = diarizeSpeakers.value.trim();
+    if (trimmed) {
+      formData.append("diarization_speakers", trimmed);
+    }
+  }
 
   try {
     const response = await fetch("/api/jobs", { method: "POST", body: formData });

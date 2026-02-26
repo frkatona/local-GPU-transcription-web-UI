@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import json
+import os
 import queue
 import re
 import threading
@@ -71,6 +72,8 @@ LIVE_USE_VAD_FILTER = False
 LIVE_DEFAULT_MODEL = "small"
 LIVE_DEFAULT_LANGUAGE = "en"
 AVAILABLE_MODELS = ["tiny", "base", "small", "medium", "large-v3"]
+DIARIZATION_MODEL = "pyannote/speaker-diarization-3.1"
+DIARIZATION_TOKEN_ENV_VARS = ("HF_TOKEN", "HUGGINGFACE_TOKEN")
 
 
 @dataclass
@@ -93,6 +96,12 @@ class Job:
     language: str | None = None
     language_probability: float | None = None
     segment_count: int = 0
+    diarize: bool = False
+    diarization_speakers: int | None = None
+    diarization_status: str = "disabled"
+    diarization_error: str | None = None
+    diarization_seconds: float | None = None
+    speaker_count: int = 0
     transcription_seconds: float | None = None
     error: str | None = None
 
@@ -104,6 +113,8 @@ class LiveStartRequest(BaseModel):
     language: str | None = LIVE_DEFAULT_LANGUAGE
     device_id: str | None = None
     capture_mode: str = "low_latency"
+    diarize: bool = False
+    diarization_speakers: int | None = None
 
 
 class ModelPreloadRequest(BaseModel):
@@ -115,6 +126,8 @@ jobs_lock = threading.Lock()
 executor = ThreadPoolExecutor(max_workers=1)
 model_cache: dict[tuple[str, str, str], WhisperModel] = {}
 model_cache_lock = threading.Lock()
+diarization_pipeline_cache: dict[tuple[str, str], Any] = {}
+diarization_pipeline_lock = threading.Lock()
 
 live_state_lock = threading.Lock()
 live_segments: list[dict[str, Any]] = []
@@ -125,6 +138,12 @@ live_state: dict[str, Any] = {
     "model": LIVE_DEFAULT_MODEL,
     "language": LIVE_DEFAULT_LANGUAGE,
     "capture_mode": "low_latency",
+    "diarize": False,
+    "diarization_speakers": None,
+    "diarization_status": "disabled",
+    "diarization_error": None,
+    "diarization_seconds": None,
+    "speaker_count": 0,
     "device_id": None,
     "device_label": None,
     "message": "Idle",
@@ -231,6 +250,192 @@ def get_audio_duration_seconds(audio_path: Path) -> float:
     finally:
         container.close()
     return 0.0
+
+
+def parse_form_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if not normalized:
+        return default
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"Invalid boolean value '{value}'.")
+
+
+def get_diarization_token() -> str | None:
+    for env_key in DIARIZATION_TOKEN_ENV_VARS:
+        token = os.environ.get(env_key)
+        if token and token.strip():
+            return token.strip()
+    return None
+
+
+def load_diarization_pipeline() -> tuple[Any, str]:
+    token = get_diarization_token()
+    if not token:
+        token_keys = ", ".join(DIARIZATION_TOKEN_ENV_VARS)
+        raise RuntimeError(f"Diarization requires a Hugging Face token in one of: {token_keys}.")
+
+    cache_key = (DIARIZATION_MODEL, token)
+    with diarization_pipeline_lock:
+        cached = diarization_pipeline_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        from pyannote.audio import Pipeline
+    except Exception as exc:
+        raise RuntimeError(
+            "pyannote.audio is not installed. Install it to enable diarization."
+        ) from exc
+
+    try:
+        pipeline = Pipeline.from_pretrained(DIARIZATION_MODEL, use_auth_token=token)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load diarization model '{DIARIZATION_MODEL}': {exc}") from exc
+
+    device_label = "cpu"
+    try:
+        import torch
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        pipeline.to(device)
+        device_label = str(device)
+    except Exception:
+        device_label = "cpu"
+
+    loaded = (pipeline, device_label)
+    with diarization_pipeline_lock:
+        diarization_pipeline_cache[cache_key] = loaded
+    return loaded
+
+
+def _annotation_to_diarization_segments(annotation: Any) -> list[dict[str, Any]]:
+    diarization_segments: list[dict[str, Any]] = []
+    for turn, _, speaker_id in annotation.itertracks(yield_label=True):
+        start = float(turn.start)
+        end = float(turn.end)
+        if end <= start:
+            continue
+        diarization_segments.append(
+            {
+                "start": start,
+                "end": end,
+                "speaker_id": str(speaker_id),
+            }
+        )
+    diarization_segments.sort(key=lambda item: (float(item["start"]), float(item["end"])))
+    return diarization_segments
+
+
+def run_speaker_diarization(audio_path: Path, diarization_speakers: int | None) -> list[dict[str, Any]]:
+    pipeline, _ = load_diarization_pipeline()
+    kwargs: dict[str, Any] = {}
+    if diarization_speakers is not None:
+        kwargs["num_speakers"] = int(diarization_speakers)
+
+    try:
+        annotation = pipeline(str(audio_path), **kwargs)
+    except Exception as exc:
+        raise RuntimeError(f"Diarization failed: {exc}") from exc
+    return _annotation_to_diarization_segments(annotation)
+
+
+def run_speaker_diarization_on_waveform(
+    waveform: np.ndarray,
+    sample_rate: int,
+    diarization_speakers: int | None,
+    pipeline: Any | None = None,
+) -> list[dict[str, Any]]:
+    if waveform.size == 0:
+        return []
+
+    diarization_pipeline = pipeline
+    if diarization_pipeline is None:
+        diarization_pipeline, _ = load_diarization_pipeline()
+
+    kwargs: dict[str, Any] = {}
+    if diarization_speakers is not None:
+        kwargs["num_speakers"] = int(diarization_speakers)
+
+    try:
+        import torch
+    except Exception as exc:
+        raise RuntimeError("torch is required for in-memory diarization.") from exc
+
+    mono = waveform.astype(np.float32, copy=False).reshape(1, -1)
+    payload = {"waveform": torch.from_numpy(mono.copy()), "sample_rate": int(sample_rate)}
+
+    try:
+        annotation = diarization_pipeline(payload, **kwargs)
+    except Exception as exc:
+        raise RuntimeError(f"Diarization failed: {exc}") from exc
+    return _annotation_to_diarization_segments(annotation)
+
+
+def interval_overlap_seconds(
+    start_a: float,
+    end_a: float,
+    start_b: float,
+    end_b: float,
+) -> float:
+    return max(0.0, min(end_a, end_b) - max(start_a, start_b))
+
+
+def format_segment_text(text: str, speaker: str | None = None) -> str:
+    cleaned = text.strip()
+    speaker_label = (speaker or "").strip()
+    if speaker_label:
+        return f"{speaker_label}: {cleaned}"
+    return cleaned
+
+
+def assign_speakers_to_segments(
+    segments: list[dict[str, Any]],
+    diarization_segments: list[dict[str, Any]],
+    speaker_label_map: dict[str, str] | None = None,
+) -> int:
+    if not segments or not diarization_segments:
+        return len(speaker_label_map or {})
+
+    if speaker_label_map is None:
+        speaker_label_map = {}
+
+    for segment in segments:
+        start = float(segment["start"])
+        end = max(float(segment["end"]), start)
+        midpoint = (start + end) / 2.0
+        best_speaker_id: str | None = None
+        best_overlap = 0.0
+        nearest_distance = float("inf")
+
+        for diar_item in diarization_segments:
+            diar_start = float(diar_item["start"])
+            diar_end = float(diar_item["end"])
+            overlap = interval_overlap_seconds(start, end, diar_start, diar_end)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_speaker_id = str(diar_item["speaker_id"])
+            if best_overlap <= 0.0:
+                diar_midpoint = (diar_start + diar_end) / 2.0
+                distance = abs(midpoint - diar_midpoint)
+                if distance < nearest_distance:
+                    nearest_distance = distance
+                    best_speaker_id = str(diar_item["speaker_id"])
+
+        if not best_speaker_id:
+            continue
+
+        if best_speaker_id not in speaker_label_map:
+            speaker_label_map[best_speaker_id] = f"Speaker {len(speaker_label_map) + 1}"
+
+        segment["speaker_id"] = best_speaker_id
+        segment["speaker"] = speaker_label_map[best_speaker_id]
+
+    return len(speaker_label_map)
 
 
 def update_job(job_id: str, **updates: Any) -> None:
@@ -395,7 +600,11 @@ def build_live_metrics_response_locked() -> dict[str, Any]:
 def build_live_state_response_locked() -> dict[str, Any]:
     state_copy = dict(live_state)
     segment_count = len(live_segments)
+    speaker_count = len(
+        {str(item.get("speaker")) for item in live_segments if str(item.get("speaker") or "").strip()}
+    )
     state_copy["segment_count"] = segment_count
+    state_copy["speaker_count"] = speaker_count
     downloads: dict[str, str] = {}
     if segment_count > 0:
         downloads["txt"] = "/api/live/download/txt"
@@ -450,6 +659,9 @@ def update_live_state(**updates: Any) -> dict[str, Any]:
         live_state.update(updates)
         live_state["updated_at"] = time.time()
         live_state["segment_count"] = len(live_segments)
+        live_state["speaker_count"] = len(
+            {str(item.get("speaker")) for item in live_segments if str(item.get("speaker") or "").strip()}
+        )
         return dict(live_state)
 
 
@@ -461,7 +673,13 @@ def update_live_metrics(**updates: Any) -> dict[str, Any]:
         return build_live_metrics_response_locked()
 
 
-def append_live_segment(start: float, end: float, text: str) -> tuple[dict[str, Any], dict[str, Any]]:
+def append_live_segment(
+    start: float,
+    end: float,
+    text: str,
+    speaker: str | None = None,
+    speaker_id: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     with live_state_lock:
         segment = {
             "index": len(live_segments) + 1,
@@ -469,8 +687,17 @@ def append_live_segment(start: float, end: float, text: str) -> tuple[dict[str, 
             "end": float(max(end, start)),
             "text": text,
         }
+        speaker_label = (speaker or "").strip()
+        speaker_identifier = (speaker_id or "").strip()
+        if speaker_label:
+            segment["speaker"] = speaker_label
+        if speaker_identifier:
+            segment["speaker_id"] = speaker_identifier
         live_segments.append(segment)
         live_state["segment_count"] = len(live_segments)
+        live_state["speaker_count"] = len(
+            {str(item.get("speaker")) for item in live_segments if str(item.get("speaker") or "").strip()}
+        )
         live_state["updated_at"] = time.time()
         return dict(segment), dict(live_state)
 
@@ -478,7 +705,10 @@ def append_live_segment(start: float, end: float, text: str) -> tuple[dict[str, 
 def build_txt_content(segments: list[dict[str, Any]], title: str) -> str:
     lines = ["# Live Transcription", f"# Session: {title}", ""]
     for segment in segments:
-        lines.append(f"[{format_hhmmss(float(segment['start']))}] {segment['text']}")
+        lines.append(
+            f"[{format_hhmmss(float(segment['start']))}] "
+            f"{format_segment_text(str(segment['text']), str(segment.get('speaker') or ''))}"
+        )
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -489,7 +719,7 @@ def build_srt_content(segments: list[dict[str, Any]]) -> str:
         blocks.append(
             f"{format_srt_time(float(segment['start']))} --> {format_srt_time(float(segment['end']))}"
         )
-        blocks.append(str(segment["text"]))
+        blocks.append(format_segment_text(str(segment["text"]), str(segment.get("speaker") or "")))
         blocks.append("")
     return "\n".join(blocks).rstrip() + "\n"
 
@@ -726,10 +956,10 @@ def transcribe_live_chunk(
     vad_filter: bool = True,
     language: str | None = None,
     on_resampled_chunk: Callable[[np.ndarray], None] | None = None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], np.ndarray]:
     chunk = resample_audio(raw_chunk, source_rate, LIVE_TARGET_SAMPLE_RATE)
     if chunk.size == 0:
-        return []
+        return [], chunk
     if on_resampled_chunk is not None:
         on_resampled_chunk(chunk)
 
@@ -747,10 +977,20 @@ def transcribe_live_chunk(
         text = segment.text.strip()
         if not text:
             continue
-        start = base_offset + chunk_start + float(segment.start)
-        end = base_offset + chunk_start + float(segment.end)
-        segments.append({"start": start, "end": max(end, start), "text": text})
-    return segments
+        local_start = float(segment.start)
+        local_end = float(segment.end)
+        start = base_offset + chunk_start + local_start
+        end = base_offset + chunk_start + local_end
+        segments.append(
+            {
+                "start": start,
+                "end": max(end, start),
+                "text": text,
+                "local_start": local_start,
+                "local_end": max(local_end, local_start),
+            }
+        )
+    return segments, chunk
 
 
 def run_live_transcription(
@@ -760,6 +1000,8 @@ def run_live_transcription(
     model_name: str,
     language: str | None,
     capture_mode: str,
+    diarize: bool,
+    diarization_speakers: int | None,
     selected_device_id: str,
     selected_device_label: str,
     base_offset: float,
@@ -794,6 +1036,13 @@ def run_live_transcription(
         "level_dbfs_max": LIVE_LEVEL_FLOOR_DBFS,
         "level_dbfs_last": LIVE_LEVEL_FLOOR_DBFS,
     }
+    live_speaker_label_map: dict[str, str] = {}
+    live_diarization_pipeline: Any | None = None
+    live_diarization_device = "cpu"
+    live_diarization_active = bool(diarize and capture_mode == "buffered_hq")
+    live_diarization_status = "running" if live_diarization_active else "disabled"
+    live_diarization_error: str | None = None
+    live_diarization_seconds = 0.0
 
     frame_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=1024)
     last_level_event = 0.0
@@ -1024,17 +1273,46 @@ def run_live_transcription(
 
     try:
         model, _ = load_model(model_name)
+        if live_diarization_active:
+            try:
+                live_diarization_pipeline, live_diarization_device = load_diarization_pipeline()
+            except Exception as exc:
+                live_diarization_status = "failed"
+                live_diarization_error = str(exc)
+                live_diarization_active = False
+        elif diarize and capture_mode != "buffered_hq":
+            live_diarization_status = "unsupported"
+            live_diarization_error = "Live diarization is available only in buffered_hq mode."
+
         mode_label = "buffered HQ" if capture_mode == "buffered_hq" else "low latency"
         initial_buffer_eta = LIVE_BUFFERED_CHUNK_SECONDS if capture_mode == "buffered_hq" else None
         initial_buffer_interval = LIVE_BUFFERED_CHUNK_SECONDS if capture_mode == "buffered_hq" else None
+        status_message = f"Listening ({source}) on {selected_device_label} [{mode_label}]"
+        if diarize:
+            if live_diarization_status == "running":
+                status_message = (
+                    f"{status_message}; diarization on ({live_diarization_device}, "
+                    f"{diarization_speakers or 'auto'} speakers)"
+                )
+            elif live_diarization_status == "failed":
+                status_message = f"{status_message}; diarization unavailable"
+            elif live_diarization_status == "unsupported":
+                status_message = f"{status_message}; diarization requires buffered_hq"
+
         state_payload = update_live_state(
             status="running",
-            message=f"Listening ({source}) on {selected_device_label} [{mode_label}]",
+            message=status_message,
             source=source,
             mode=mode,
             model=model_name,
             language=language,
             capture_mode=capture_mode,
+            diarize=bool(diarize),
+            diarization_speakers=diarization_speakers,
+            diarization_status=live_diarization_status,
+            diarization_error=live_diarization_error,
+            diarization_seconds=(0.0 if diarize else None),
+            speaker_count=0,
             device_id=selected_device_id,
             device_label=selected_device_label,
             session_id=session_id,
@@ -1163,9 +1441,11 @@ def run_live_transcription(
             vad_filter: bool,
             emit_from: float,
         ) -> None:
+            nonlocal live_diarization_active, live_diarization_status, live_diarization_error
+            nonlocal live_diarization_seconds
             with stats_lock:
                 stats["transcribe_chunks_total"] += 1
-            segments = transcribe_live_chunk(
+            segments, chunk_16k = transcribe_live_chunk(
                 model=model,
                 raw_chunk=raw_chunk,
                 source_rate=source_rate,
@@ -1177,6 +1457,55 @@ def run_live_transcription(
                 language=language,
                 on_resampled_chunk=enqueue_asr_audio_chunk,
             )
+
+            if segments and live_diarization_active and chunk_16k.size > 0:
+                diarization_started = time.time()
+                relative_segments: list[dict[str, Any]] = []
+                for segment in segments:
+                    relative_segments.append(
+                        {
+                            "start": float(segment.get("local_start", 0.0)),
+                            "end": float(segment.get("local_end", 0.0)),
+                            "text": str(segment.get("text", "")),
+                        }
+                    )
+                try:
+                    diarization_segments = run_speaker_diarization_on_waveform(
+                        waveform=chunk_16k,
+                        sample_rate=LIVE_TARGET_SAMPLE_RATE,
+                        diarization_speakers=diarization_speakers,
+                        pipeline=live_diarization_pipeline,
+                    )
+                    assign_speakers_to_segments(
+                        relative_segments,
+                        diarization_segments,
+                        speaker_label_map=live_speaker_label_map,
+                    )
+                    live_diarization_seconds += max(0.0, time.time() - diarization_started)
+                    for idx, rel_segment in enumerate(relative_segments):
+                        speaker_label = str(rel_segment.get("speaker") or "").strip()
+                        speaker_id = str(rel_segment.get("speaker_id") or "").strip()
+                        if speaker_label:
+                            segments[idx]["speaker"] = speaker_label
+                        if speaker_id:
+                            segments[idx]["speaker_id"] = speaker_id
+                except Exception as diarization_exc:
+                    live_diarization_seconds += max(0.0, time.time() - diarization_started)
+                    live_diarization_active = False
+                    live_diarization_status = "failed"
+                    live_diarization_error = str(diarization_exc)
+                    status_payload = update_live_state(
+                        diarization_status=live_diarization_status,
+                        diarization_error=live_diarization_error,
+                        diarization_seconds=live_diarization_seconds,
+                        speaker_count=len(live_speaker_label_map),
+                        message=(
+                            "Live diarization failed; continuing transcription "
+                            "without speaker labels."
+                        ),
+                    )
+                    push_live_event({"type": "live_state", "state": status_payload})
+
             if segments:
                 with stats_lock:
                     stats["transcribe_chunks_with_text"] += 1
@@ -1186,8 +1515,20 @@ def run_live_transcription(
                 if float(segment["start"]) < emit_from:
                     segment["start"] = emit_from
                 appended, live_snapshot = append_live_segment(
-                    start=segment["start"], end=segment["end"], text=segment["text"]
+                    start=segment["start"],
+                    end=segment["end"],
+                    text=str(segment["text"]),
+                    speaker=str(segment.get("speaker") or ""),
+                    speaker_id=str(segment.get("speaker_id") or ""),
                 )
+                if live_diarization_active and live_diarization_status != "running":
+                    live_diarization_status = "running"
+                if live_diarization_active:
+                    live_snapshot["diarization_status"] = live_diarization_status
+                    live_snapshot["diarization_error"] = live_diarization_error
+                    live_snapshot["diarization_seconds"] = live_diarization_seconds
+                    live_snapshot["diarize"] = bool(diarize)
+                    live_snapshot["diarization_speakers"] = diarization_speakers
                 with stats_lock:
                     stats["emitted_segments_total"] += 1
                 push_live_event(
@@ -1477,12 +1818,22 @@ def run_live_transcription(
             buffer_interval_seconds=None,
             buffer_queue_depth=0,
         )
+        final_diarization_status = live_diarization_status
+        if diarize and final_diarization_status == "running":
+            final_diarization_status = "completed"
+        live_diarization_status = final_diarization_status
         state_payload = update_live_state(
             status="idle",
             message="Live transcription stopped.",
             session_id=None,
             started_at=None,
             error=None,
+            diarize=bool(diarize),
+            diarization_speakers=diarization_speakers,
+            diarization_status=final_diarization_status,
+            diarization_error=live_diarization_error,
+            diarization_seconds=(live_diarization_seconds if diarize else None),
+            speaker_count=len(live_speaker_label_map),
             input_level_rms=0.0,
             input_level_peak=0.0,
             input_level_dbfs=LIVE_LEVEL_FLOOR_DBFS,
@@ -1507,12 +1858,22 @@ def run_live_transcription(
             buffer_interval_seconds=None,
             buffer_queue_depth=0,
         )
+        if diarize and live_diarization_status == "running":
+            live_diarization_status = "failed"
+            if not live_diarization_error:
+                live_diarization_error = str(exc)
         state_payload = update_live_state(
             status="error",
             message="Live transcription failed.",
             session_id=None,
             started_at=None,
             error=str(exc),
+            diarize=bool(diarize),
+            diarization_speakers=diarization_speakers,
+            diarization_status=live_diarization_status,
+            diarization_error=live_diarization_error,
+            diarization_seconds=(live_diarization_seconds if diarize else None),
+            speaker_count=len(live_speaker_label_map),
             input_level_rms=0.0,
             input_level_peak=0.0,
             input_level_dbfs=LIVE_LEVEL_FLOOR_DBFS,
@@ -1605,6 +1966,15 @@ def run_live_transcription(
                 "capture": capture_writer_error_message,
                 "asr_16k": asr_writer_error_message,
             },
+            "diarization": {
+                "enabled": bool(diarize),
+                "requested_speakers": diarization_speakers,
+                "status": live_diarization_status,
+                "error": live_diarization_error,
+                "seconds": (float(live_diarization_seconds) if diarize else None),
+                "speaker_count": len(live_speaker_label_map),
+                "device": live_diarization_device if diarize else None,
+            },
         }
 
         try:
@@ -1662,60 +2032,104 @@ def transcribe_job(job_id: str) -> None:
         segments_list: list[dict[str, Any]] = []
         segment_index = 0
 
-        with txt_path.open("w", encoding="utf-8") as txt_file, srt_path.open(
-            "w", encoding="utf-8"
-        ) as srt_file:
+        diarization_status = "pending" if job.diarize else "disabled"
+        diarization_error: str | None = None
+        diarization_seconds: float | None = None
+        speaker_count = 0
+
+        for segment in segments_iter:
+            text = segment.text.strip()
+            if not text:
+                continue
+            segment_index += 1
+            start = float(segment.start)
+            end = float(segment.end)
+
+            segments_list.append(
+                {
+                    "index": segment_index,
+                    "start": start,
+                    "end": end,
+                    "text": text,
+                }
+            )
+
+            if total_duration > 0:
+                fraction = min(end / total_duration, 1.0)
+                progress = min(0.12 + (fraction * 0.80), 0.92)
+            else:
+                progress = min(0.12 + (segment_index * 0.0025), 0.92)
+
+            update_job(
+                job_id,
+                progress=progress,
+                message=f"Transcribing segment {segment_index}",
+                segment_count=segment_index,
+            )
+
+        if job.diarize:
+            if not segments_list:
+                diarization_status = "skipped"
+                diarization_error = "No transcript segments were produced."
+            else:
+                diarization_started = time.time()
+                update_job(job_id, message="Running speaker diarization", progress=0.94)
+                try:
+                    diarization_segments = run_speaker_diarization(audio_path, job.diarization_speakers)
+                    speaker_count = assign_speakers_to_segments(segments_list, diarization_segments)
+                    diarization_status = "completed"
+                    update_job(job_id, message="Finalizing outputs", progress=0.98)
+                except Exception as diarization_exc:
+                    diarization_status = "failed"
+                    diarization_error = str(diarization_exc)
+                diarization_seconds = max(0.0, time.time() - diarization_started)
+
+        with txt_path.open("w", encoding="utf-8") as txt_file, srt_path.open("w", encoding="utf-8") as srt_file:
             txt_file.write("# Transcription\n")
             txt_file.write(f"# File: {job.original_filename}\n")
             txt_file.write(f"# Model: {job.model}\n")
             txt_file.write(f"# Device: {selected[0]}\n")
             txt_file.write(f"# Compute type: {selected[1]}\n")
             txt_file.write(
-                f"# Language: {info.language} (probability={info.language_probability:.3f})\n\n"
+                f"# Language: {info.language} (probability={info.language_probability:.3f})\n"
             )
+            txt_file.write(f"# Diarization: {diarization_status}\n")
+            if job.diarization_speakers is not None:
+                txt_file.write(f"# Requested speakers: {job.diarization_speakers}\n")
+            txt_file.write(f"# Detected speakers: {speaker_count}\n")
+            if diarization_error:
+                txt_file.write(f"# Diarization error: {diarization_error}\n")
+            txt_file.write("\n")
 
-            for segment in segments_iter:
-                text = segment.text.strip()
-                if not text:
-                    continue
-                segment_index += 1
-                start = float(segment.start)
-                end = float(segment.end)
-
-                txt_file.write(f"[{format_hhmmss(start)}] {text}\n")
-                srt_file.write(f"{segment_index}\n")
-                srt_file.write(f"{format_srt_time(start)} --> {format_srt_time(end)}\n")
-                srt_file.write(text + "\n\n")
-
-                segments_list.append(
-                    {
-                        "index": segment_index,
-                        "start": start,
-                        "end": end,
-                        "text": text,
-                    }
+            for segment in segments_list:
+                segment_text = format_segment_text(
+                    str(segment["text"]), str(segment.get("speaker") or "")
                 )
+                txt_file.write(f"[{format_hhmmss(float(segment['start']))}] {segment_text}\n")
 
-                if total_duration > 0:
-                    fraction = min(end / total_duration, 1.0)
-                    progress = min(0.12 + (fraction * 0.86), 0.99)
-                else:
-                    progress = min(0.12 + (segment_index * 0.0025), 0.99)
-
-                update_job(
-                    job_id,
-                    progress=progress,
-                    message=f"Transcribing segment {segment_index}",
-                    segment_count=segment_index,
+            for index, segment in enumerate(segments_list, start=1):
+                segment_text = format_segment_text(
+                    str(segment["text"]), str(segment.get("speaker") or "")
                 )
+                srt_file.write(f"{index}\n")
+                srt_file.write(
+                    f"{format_srt_time(float(segment['start']))} --> {format_srt_time(float(segment['end']))}\n"
+                )
+                srt_file.write(segment_text + "\n\n")
 
         with segments_path.open("w", encoding="utf-8") as segment_file:
             json.dump(segments_list, segment_file, ensure_ascii=False, indent=2)
 
+        completion_message = "Completed"
+        if diarization_status == "failed":
+            completion_message = "Completed (diarization unavailable)"
+        elif diarization_status == "completed" and speaker_count > 0:
+            completion_message = "Completed with speaker labels"
+
         update_job(
             job_id,
             status="completed",
-            message="Completed",
+            message=completion_message,
             progress=1.0,
             txt_path=str(txt_path),
             srt_path=str(srt_path),
@@ -1723,6 +2137,10 @@ def transcribe_job(job_id: str) -> None:
             language=info.language,
             language_probability=float(info.language_probability),
             segment_count=segment_index,
+            diarization_status=diarization_status,
+            diarization_error=diarization_error,
+            diarization_seconds=diarization_seconds,
+            speaker_count=speaker_count,
             transcription_seconds=time.time() - transcription_start,
         )
     except Exception as exc:
@@ -1760,6 +2178,8 @@ async def create_job(
     file: UploadFile = File(...),
     model: str = Form("small"),
     export_folder: str = Form("default"),
+    diarize: str = Form("false"),
+    diarization_speakers: str | None = Form(None),
 ) -> dict[str, Any]:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing filename")
@@ -1771,6 +2191,30 @@ async def create_job(
     model_name = (model or "small").strip().lower()
     if model_name not in AVAILABLE_MODELS:
         raise HTTPException(status_code=400, detail=f"Unsupported model '{model_name}'.")
+    try:
+        diarize_enabled = parse_form_bool(diarize, default=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    diarization_speakers_value: int | None = None
+    if diarization_speakers is not None and diarization_speakers.strip():
+        try:
+            diarization_speakers_value = int(diarization_speakers.strip())
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="diarization_speakers must be an integer between 1 and 20.",
+            ) from exc
+        if diarization_speakers_value < 1 or diarization_speakers_value > 20:
+            raise HTTPException(
+                status_code=400,
+                detail="diarization_speakers must be between 1 and 20.",
+            )
+    if diarization_speakers_value is not None and not diarize_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="diarization_speakers was provided but diarize is disabled.",
+        )
 
     audio_name = safe_token(Path(file.filename).name, "audio.mp3")
     job_id = uuid.uuid4().hex
@@ -1796,6 +2240,9 @@ async def create_job(
         message="Queued",
         created_at=now,
         updated_at=now,
+        diarize=diarize_enabled,
+        diarization_speakers=diarization_speakers_value,
+        diarization_status="pending" if diarize_enabled else "disabled",
     )
 
     with jobs_lock:
@@ -1898,6 +2345,8 @@ def start_live(request: LiveStartRequest) -> dict[str, Any]:
     language = None if requested_language in {"", "auto", "detect"} else requested_language
     requested_device_id = request.device_id.strip() if request.device_id else None
     capture_mode = request.capture_mode.strip().lower() if request.capture_mode else "buffered_hq"
+    diarize = bool(request.diarize)
+    diarization_speakers = int(request.diarization_speakers) if request.diarization_speakers is not None else None
     if source not in {"mic", "system"}:
         raise HTTPException(status_code=400, detail="source must be 'mic' or 'system'")
     if mode not in {"new", "append"}:
@@ -1908,6 +2357,17 @@ def start_live(request: LiveStartRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"Unsupported model '{model_name}'.")
     if language is not None and not re.fullmatch(r"[a-z]{2,3}(?:-[a-z]{2})?", language):
         raise HTTPException(status_code=400, detail="language must be auto/detect or a valid code like 'en'.")
+    if diarization_speakers is not None and (diarization_speakers < 1 or diarization_speakers > 20):
+        raise HTTPException(status_code=400, detail="diarization_speakers must be between 1 and 20.")
+    if diarization_speakers is not None and not diarize:
+        raise HTTPException(
+            status_code=400, detail="diarization_speakers was provided but diarize is disabled."
+        )
+    if diarize and capture_mode != "buffered_hq":
+        raise HTTPException(
+            status_code=400,
+            detail="Live diarization is only supported in buffered_hq capture mode.",
+        )
     if has_active_batch_jobs():
         raise HTTPException(
             status_code=409,
@@ -1947,6 +2407,14 @@ def start_live(request: LiveStartRequest) -> dict[str, Any]:
                 "model": model_name,
                 "language": language,
                 "capture_mode": capture_mode,
+                "diarize": diarize,
+                "diarization_speakers": diarization_speakers,
+                "diarization_status": "pending" if diarize else "disabled",
+                "diarization_error": None,
+                "diarization_seconds": (0.0 if diarize else None),
+                "speaker_count": len(
+                    {str(item.get("speaker")) for item in live_segments if str(item.get("speaker") or "").strip()}
+                ),
                 "device_id": selected_device_id,
                 "device_label": selected_device_label,
                 "message": "Starting live transcription...",
@@ -1989,6 +2457,8 @@ def start_live(request: LiveStartRequest) -> dict[str, Any]:
             model_name,
             language,
             capture_mode,
+            diarize,
+            diarization_speakers,
             selected_device_id,
             selected_device_label,
             base_offset,

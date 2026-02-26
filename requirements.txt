@@ -6,3 +6,5 @@ av
 numpy
 sounddevice
 soundcard
+# Optional for speaker diarization:
+# pyannote.audio

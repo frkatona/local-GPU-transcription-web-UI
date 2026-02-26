@@ -57,6 +57,27 @@
                 <input id="exportFolder" type="text" name="export_folder" value="default" />
               </label>
 
+              <div class="field">
+                <span>Diarization</span>
+                <label class="checkbox-row" for="diarizeToggle">
+                  <input id="diarizeToggle" type="checkbox" />
+                  <span>Label speakers</span>
+                </label>
+              </div>
+
+              <label class="field">
+                <span>Expected Speakers</span>
+                <input
+                  id="diarizeSpeakers"
+                  type="number"
+                  min="1"
+                  max="20"
+                  step="1"
+                  placeholder="Auto detect"
+                  disabled
+                />
+              </label>
+
               <button id="startBtn" type="submit" class="action">Start Transcription</button>
             </div>
 
@@ -114,6 +135,27 @@
                   <option value="en" selected>English (recommended)</option>
                   <option value="auto">Auto Detect</option>
                 </select>
+              </label>
+
+              <div class="field">
+                <span>Live Diarization</span>
+                <label class="checkbox-row" for="liveDiarizeToggle">
+                  <input id="liveDiarizeToggle" type="checkbox" />
+                  <span>Label speakers (buffered HQ only)</span>
+                </label>
+              </div>
+
+              <label class="field">
+                <span>Live Expected Speakers</span>
+                <input
+                  id="liveDiarizeSpeakers"
+                  type="number"
+                  min="1"
+                  max="20"
+                  step="1"
+                  placeholder="Auto detect"
+                  disabled
+                />
               </label>
 
               <div class="field live-preload">

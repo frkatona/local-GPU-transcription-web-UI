@@ -1,6 +1,7 @@
 :root {
   --bg-0: #f4efe6;
   --bg-1: #f8f7f4;
+  --bg-2: #eef8f5;
   --ink: #1f2529;
   --ink-soft: #4a555d;
   --panel: rgba(255, 255, 255, 0.84);
@@ -10,8 +11,61 @@
   --signal: #f25c2a;
   --signal-soft: #ff9f6e;
   --good: #2a9d58;
+  --orb-a-glow: rgba(24, 143, 152, 0.28);
+  --orb-b-glow: rgba(242, 92, 42, 0.22);
   --radius: 18px;
   --shadow: 0 24px 56px rgba(23, 39, 46, 0.12);
+}
+
+:root[data-theme="ocean"] {
+  --bg-0: #e8f6ff;
+  --bg-1: #f1fbf8;
+  --bg-2: #f7fcff;
+  --ink: #17303a;
+  --ink-soft: #496771;
+  --panel: rgba(255, 255, 255, 0.86);
+  --line: rgba(31, 76, 94, 0.18);
+  --accent: #1e83c6;
+  --accent-strong: #135a8b;
+  --signal: #12a88e;
+  --signal-soft: #7de1d0;
+  --good: #2c8c69;
+  --orb-a-glow: rgba(30, 131, 198, 0.28);
+  --orb-b-glow: rgba(18, 168, 142, 0.22);
+}
+
+:root[data-theme="ember"] {
+  --bg-0: #fff4ea;
+  --bg-1: #fff8f3;
+  --bg-2: #fff0e8;
+  --ink: #35221d;
+  --ink-soft: #7a5b53;
+  --panel: rgba(255, 252, 248, 0.88);
+  --line: rgba(106, 58, 38, 0.16);
+  --accent: #cc5b2d;
+  --accent-strong: #8f3413;
+  --signal: #d78d1f;
+  --signal-soft: #ffc86d;
+  --good: #739a33;
+  --orb-a-glow: rgba(204, 91, 45, 0.28);
+  --orb-b-glow: rgba(215, 141, 31, 0.22);
+}
+
+:root[data-theme="evergreen"] {
+  --bg-0: #eef6ed;
+  --bg-1: #f8fbf4;
+  --bg-2: #eef8f1;
+  --ink: #203028;
+  --ink-soft: #556b60;
+  --panel: rgba(253, 255, 251, 0.86);
+  --line: rgba(50, 85, 66, 0.17);
+  --accent: #2a7e57;
+  --accent-strong: #1d5b3e;
+  --signal: #c06b35;
+  --signal-soft: #f1b67a;
+  --good: #5f9a50;
+  --orb-a-glow: rgba(42, 126, 87, 0.28);
+  --orb-b-glow: rgba(192, 107, 53, 0.22);
 }
 
 *,
@@ -29,7 +83,7 @@ body {
 body {
   position: relative;
   overflow-x: hidden;
-  background: linear-gradient(160deg, var(--bg-0) 0%, var(--bg-1) 50%, #eef8f5 100%);
+  background: linear-gradient(160deg, var(--bg-0) 0%, var(--bg-1) 50%, var(--bg-2) 100%);
   color: var(--ink);
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
 }
@@ -47,7 +101,7 @@ body {
   height: 380px;
   left: -120px;
   top: -100px;
-  background: radial-gradient(circle at 35% 30%, rgba(24, 143, 152, 0.28), transparent 72%);
+  background: radial-gradient(circle at 35% 30%, var(--orb-a-glow), transparent 72%);
   animation: floatA 20s ease-in-out infinite;
 }
 
@@ -56,7 +110,7 @@ body {
   height: 420px;
   right: -130px;
   bottom: -140px;
-  background: radial-gradient(circle at 45% 45%, rgba(242, 92, 42, 0.22), transparent 72%);
+  background: radial-gradient(circle at 45% 45%, var(--orb-b-glow), transparent 72%);
   animation: floatB 24s ease-in-out infinite;
 }
 
@@ -200,6 +254,73 @@ h1 {
 .field {
   display: grid;
   gap: 0.35rem;
+}
+
+.menu-field {
+  display: grid;
+  gap: 0.55rem;
+  align-self: end;
+}
+
+.menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.55rem 0.75rem;
+  background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.menu-trigger:hover,
+.menu-field[open] .menu-trigger {
+  border-color: rgba(24, 143, 152, 0.4);
+  background: linear-gradient(120deg, rgba(24, 143, 152, 0.08), rgba(242, 92, 42, 0.08));
+}
+
+.menu-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.menu-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.menu-trigger-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+  color: #1b3136;
+}
+
+.menu-trigger-label {
+  font-size: 0.84rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.menu-panel {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.menu-panel-field {
+  gap: 0.35rem;
+}
+
+.menu-panel .checkbox-row {
+  min-height: auto;
+  padding: 0;
 }
 
 .field span {
@@ -518,6 +639,7 @@ audio {
   padding: 0.55rem 0.65rem;
   font: inherit;
   color: #202b31;
+  
 }
 
 .transcript-list {

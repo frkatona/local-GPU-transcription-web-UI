@@ -16,6 +16,139 @@
   <body>
     <div class="orb orb-a" aria-hidden="true"></div>
     <div class="orb orb-b" aria-hidden="true"></div>
+
+    <!-- Utility bar: fixed top-left, outside shell stacking context -->
+    <div class="utility-bar">
+      <button
+        id="settingsMenuBtn"
+        type="button"
+        class="menu-trigger settings-trigger"
+        aria-label="Open menu"
+        aria-expanded="false"
+        aria-controls="settingsOverlay"
+      >
+          <span class="menu-trigger-icon" aria-hidden="true">&#9776;</span>
+      </button>
+    </div>
+
+    <!-- Settings overlay: direct child of body so z-index works globally -->
+    <div id="settingsOverlay" class="settings-overlay" aria-hidden="true">
+      <button
+        id="settingsBackdrop"
+        type="button"
+        class="settings-backdrop"
+        aria-label="Close settings"
+      ></button>
+      <section id="settingsPanel" class="settings-panel" role="dialog" aria-labelledby="settingsPanelTitle">
+        <div class="settings-panel-header">
+          <strong id="settingsPanelTitle" class="settings-panel-title">Settings</strong>
+          <button id="settingsCloseBtn" type="button" class="settings-close" aria-label="Close settings">
+            &times;
+          </button>
+        </div>
+        <div class="menu-panel settings-panel-body">
+          <label class="field menu-panel-field" for="themeSelect">
+            <span>Page Theme</span>
+            <select id="themeSelect">
+              <option value="sand" selected>Sand</option>
+              <option value="ocean">Ocean</option>
+              <option value="ember">Ember</option>
+              <option value="evergreen">Evergreen</option>
+            </select>
+          </label>
+          <div class="theme-swatches" role="group" aria-label="Theme palettes">
+            <button type="button" class="theme-swatch active" data-theme-choice="sand" aria-pressed="true">
+              <span class="theme-swatch-preview sand" aria-hidden="true"></span>
+              <span>Sand</span>
+            </button>
+            <button type="button" class="theme-swatch" data-theme-choice="ocean" aria-pressed="false">
+              <span class="theme-swatch-preview ocean" aria-hidden="true"></span>
+              <span>Ocean</span>
+            </button>
+            <button type="button" class="theme-swatch" data-theme-choice="ember" aria-pressed="false">
+              <span class="theme-swatch-preview ember" aria-hidden="true"></span>
+              <span>Ember</span>
+            </button>
+            <button type="button" class="theme-swatch" data-theme-choice="evergreen" aria-pressed="false">
+              <span class="theme-swatch-preview evergreen" aria-hidden="true"></span>
+              <span>Evergreen</span>
+            </button>
+          </div>
+
+          <label class="checkbox-row" for="verboseDescriptionsToggle">
+            <input id="verboseDescriptionsToggle" type="checkbox" checked />
+            <span>Verbose descriptions</span>
+          </label>
+
+          <div id="fileSettingsSection" class="menu-mode-panel">
+            <div class="menu-divider" role="separator" aria-hidden="true"></div>
+            <label class="checkbox-row" for="diarizeToggle">
+              <input id="diarizeToggle" type="checkbox" />
+              <span>Label speakers</span>
+            </label>
+
+            <label class="field menu-panel-field" for="diarizationToken">
+              <span>Hugging Face Token</span>
+              <input
+                id="diarizationToken"
+                type="text"
+                placeholder="HUGGINGFACE_TOKEN"
+                autocomplete="off"
+                spellcheck="false"
+                disabled
+              />
+            </label>
+
+            <label class="field menu-panel-field" for="diarizeSpeakers">
+              <span>Expected Speakers</span>
+              <input
+                id="diarizeSpeakers"
+                type="number"
+                min="1"
+                max="20"
+                step="1"
+                placeholder="Auto detect"
+                disabled
+              />
+            </label>
+          </div>
+
+          <div id="liveSettingsSection" class="menu-mode-panel hidden">
+            <div class="menu-divider" role="separator" aria-hidden="true"></div>
+            <label class="checkbox-row" for="liveDiarizeToggle">
+              <input id="liveDiarizeToggle" type="checkbox" />
+              <span>Label speakers (buffered HQ only)</span>
+            </label>
+
+            <label class="field menu-panel-field" for="liveDiarizationToken">
+              <span>Hugging Face Token</span>
+              <input
+                id="liveDiarizationToken"
+                type="text"
+                placeholder="HUGGINGFACE_TOKEN"
+                autocomplete="off"
+                spellcheck="false"
+                disabled
+              />
+            </label>
+
+            <label class="field menu-panel-field" for="liveDiarizeSpeakers">
+              <span>Live Expected Speakers</span>
+              <input
+                id="liveDiarizeSpeakers"
+                type="number"
+                min="1"
+                max="20"
+                step="1"
+                placeholder="Auto detect"
+                disabled
+              />
+            </label>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <main class="shell">
       <header class="hero">
         <p class="eyebrow">Local GPU-First Transcription</p>
@@ -55,27 +188,6 @@
               <label class="field">
                 <span>Export Folder</span>
                 <input id="exportFolder" type="text" name="export_folder" value="default" />
-              </label>
-
-              <div class="field">
-                <span>Diarization</span>
-                <label class="checkbox-row" for="diarizeToggle">
-                  <input id="diarizeToggle" type="checkbox" />
-                  <span>Label speakers</span>
-                </label>
-              </div>
-
-              <label class="field">
-                <span>Expected Speakers</span>
-                <input
-                  id="diarizeSpeakers"
-                  type="number"
-                  min="1"
-                  max="20"
-                  step="1"
-                  placeholder="Auto detect"
-                  disabled
-                />
               </label>
 
               <button id="startBtn" type="submit" class="action">Start Transcription</button>
@@ -137,27 +249,6 @@
                 </select>
               </label>
 
-              <div class="field">
-                <span>Live Diarization</span>
-                <label class="checkbox-row" for="liveDiarizeToggle">
-                  <input id="liveDiarizeToggle" type="checkbox" />
-                  <span>Label speakers (buffered HQ only)</span>
-                </label>
-              </div>
-
-              <label class="field">
-                <span>Live Expected Speakers</span>
-                <input
-                  id="liveDiarizeSpeakers"
-                  type="number"
-                  min="1"
-                  max="20"
-                  step="1"
-                  placeholder="Auto detect"
-                  disabled
-                />
-              </label>
-
               <div class="field live-preload">
                 <span>Model Warmup</span>
                 <button id="livePreloadBtn" type="button" class="secondary-action">Pre-load Selected Model</button>
@@ -211,12 +302,29 @@
             <div class="meta-item"><span>Language</span><strong id="metaLanguage">-</strong></div>
             <div class="meta-item"><span>Segments</span><strong id="metaSegments">-</strong></div>
           </div>
-          <div class="download-row">
-            <a id="downloadTxt" class="download-btn" href="#" download>Download TXT</a>
-            <a id="downloadSrt" class="download-btn" href="#" download>Download SRT</a>
-            <a id="downloadAudio" class="download-btn hidden" href="#" download>Captured WAV</a>
-            <a id="downloadAudio16k" class="download-btn hidden" href="#" download>Whisper 16k WAV</a>
-            <a id="downloadDiagnostics" class="download-btn hidden" href="#" download>Diagnostics JSON</a>
+          <div id="downloadsMenu" class="downloads-menu">
+            <button
+              id="downloadsTrigger"
+              type="button"
+              class="downloads-trigger"
+              aria-disabled="true"
+              aria-expanded="false"
+              aria-controls="downloadsList"
+            >
+              <span class="downloads-trigger-text">
+                <strong id="downloadsTriggerLabel">Downloads</strong>
+                <span id="downloadsTriggerHint">No files yet</span>
+              </span>
+              <span class="downloads-trigger-icon" aria-hidden="true">&#9662;</span>
+            </button>
+            <div id="downloadsList" class="downloads-list hidden" role="list">
+              <a id="downloadTxt" class="download-btn hidden" href="#" download>Download TXT</a>
+              <a id="downloadSrt" class="download-btn hidden" href="#" download>Download SRT</a>
+              <a id="downloadMarkdown" class="download-btn hidden" href="#" download>Download Markdown</a>
+              <a id="downloadAudio" class="download-btn hidden" href="#" download>Captured WAV</a>
+              <a id="downloadAudio16k" class="download-btn hidden" href="#" download>Whisper 16k WAV</a>
+              <a id="downloadDiagnostics" class="download-btn hidden" href="#" download>Diagnostics JSON</a>
+            </div>
           </div>
         </article>
 
@@ -227,6 +335,13 @@
             <span>Current Text</span>
             <textarea id="currentTextBox" readonly aria-live="polite"></textarea>
           </div>
+          <div class="transcript-toolbar">
+            <button id="readingViewBtn" type="button" class="secondary-action transcript-toggle" aria-pressed="false">
+              Reading View
+            </button>
+            <span id="readingViewHint" class="helper-text">Short paragraphs without timestamps</span>
+          </div>
+          <div id="readingView" class="reading-view hidden" aria-live="polite"></div>
           <div id="transcriptList" class="transcript-list"></div>
         </article>
       </section>

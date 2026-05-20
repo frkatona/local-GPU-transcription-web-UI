@@ -114,6 +114,7 @@ class LiveStartRequest(BaseModel):
     device_id: str | None = None
     capture_mode: str = "low_latency"
     diarize: bool = False
+    huggingface_token: str | None = None
     diarization_speakers: int | None = None
 
 
@@ -265,7 +266,9 @@ def parse_form_bool(value: str | None, default: bool = False) -> bool:
     raise ValueError(f"Invalid boolean value '{value}'.")
 
 
-def get_diarization_token() -> str | None:
+def get_diarization_token(explicit_token: str | None = None) -> str | None:
+    if explicit_token and explicit_token.strip():
+        return explicit_token.strip()
     for env_key in DIARIZATION_TOKEN_ENV_VARS:
         token = os.environ.get(env_key)
         if token and token.strip():
@@ -273,8 +276,8 @@ def get_diarization_token() -> str | None:
     return None
 
 
-def load_diarization_pipeline() -> tuple[Any, str]:
-    token = get_diarization_token()
+def load_diarization_pipeline(explicit_token: str | None = None) -> tuple[Any, str]:
+    token = get_diarization_token(explicit_token)
     if not token:
         token_keys = ", ".join(DIARIZATION_TOKEN_ENV_VARS)
         raise RuntimeError(f"Diarization requires a Hugging Face token in one of: {token_keys}.")
@@ -331,8 +334,12 @@ def _annotation_to_diarization_segments(annotation: Any) -> list[dict[str, Any]]
     return diarization_segments
 
 
-def run_speaker_diarization(audio_path: Path, diarization_speakers: int | None) -> list[dict[str, Any]]:
-    pipeline, _ = load_diarization_pipeline()
+def run_speaker_diarization(
+    audio_path: Path,
+    diarization_speakers: int | None,
+    huggingface_token: str | None = None,
+) -> list[dict[str, Any]]:
+    pipeline, _ = load_diarization_pipeline(huggingface_token)
     kwargs: dict[str, Any] = {}
     if diarization_speakers is not None:
         kwargs["num_speakers"] = int(diarization_speakers)
@@ -349,13 +356,14 @@ def run_speaker_diarization_on_waveform(
     sample_rate: int,
     diarization_speakers: int | None,
     pipeline: Any | None = None,
+    huggingface_token: str | None = None,
 ) -> list[dict[str, Any]]:
     if waveform.size == 0:
         return []
 
     diarization_pipeline = pipeline
     if diarization_pipeline is None:
-        diarization_pipeline, _ = load_diarization_pipeline()
+        diarization_pipeline, _ = load_diarization_pipeline(huggingface_token)
 
     kwargs: dict[str, Any] = {}
     if diarization_speakers is not None:
@@ -1001,6 +1009,7 @@ def run_live_transcription(
     language: str | None,
     capture_mode: str,
     diarize: bool,
+    huggingface_token: str | None,
     diarization_speakers: int | None,
     selected_device_id: str,
     selected_device_label: str,
@@ -1275,7 +1284,7 @@ def run_live_transcription(
         model, _ = load_model(model_name)
         if live_diarization_active:
             try:
-                live_diarization_pipeline, live_diarization_device = load_diarization_pipeline()
+                live_diarization_pipeline, live_diarization_device = load_diarization_pipeline(huggingface_token)
             except Exception as exc:
                 live_diarization_status = "failed"
                 live_diarization_error = str(exc)
@@ -1990,7 +1999,7 @@ def run_live_transcription(
             live_stop_event = None
 
 
-def transcribe_job(job_id: str) -> None:
+def transcribe_job(job_id: str, huggingface_token: str | None = None) -> None:
     with jobs_lock:
         job = jobs[job_id]
 
@@ -2075,7 +2084,11 @@ def transcribe_job(job_id: str) -> None:
                 diarization_started = time.time()
                 update_job(job_id, message="Running speaker diarization", progress=0.94)
                 try:
-                    diarization_segments = run_speaker_diarization(audio_path, job.diarization_speakers)
+                    diarization_segments = run_speaker_diarization(
+                        audio_path,
+                        job.diarization_speakers,
+                        huggingface_token=huggingface_token,
+                    )
                     speaker_count = assign_speakers_to_segments(segments_list, diarization_segments)
                     diarization_status = "completed"
                     update_job(job_id, message="Finalizing outputs", progress=0.98)
@@ -2179,6 +2192,7 @@ async def create_job(
     model: str = Form("small"),
     export_folder: str = Form("default"),
     diarize: str = Form("false"),
+    huggingface_token: str | None = Form(None),
     diarization_speakers: str | None = Form(None),
 ) -> dict[str, Any]:
     if not file.filename:
@@ -2195,6 +2209,7 @@ async def create_job(
         diarize_enabled = parse_form_bool(diarize, default=False)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    huggingface_token_value = huggingface_token.strip() if huggingface_token and huggingface_token.strip() else None
 
     diarization_speakers_value: int | None = None
     if diarization_speakers is not None and diarization_speakers.strip():
@@ -2248,7 +2263,7 @@ async def create_job(
     with jobs_lock:
         jobs[job_id] = job
 
-    executor.submit(transcribe_job, job_id)
+    executor.submit(transcribe_job, job_id, huggingface_token_value)
     return {"job_id": job_id, "status_url": f"/api/jobs/{job_id}"}
 
 
@@ -2346,6 +2361,9 @@ def start_live(request: LiveStartRequest) -> dict[str, Any]:
     requested_device_id = request.device_id.strip() if request.device_id else None
     capture_mode = request.capture_mode.strip().lower() if request.capture_mode else "buffered_hq"
     diarize = bool(request.diarize)
+    huggingface_token = (
+        request.huggingface_token.strip() if request.huggingface_token and request.huggingface_token.strip() else None
+    )
     diarization_speakers = int(request.diarization_speakers) if request.diarization_speakers is not None else None
     if source not in {"mic", "system"}:
         raise HTTPException(status_code=400, detail="source must be 'mic' or 'system'")
@@ -2458,6 +2476,7 @@ def start_live(request: LiveStartRequest) -> dict[str, Any]:
             language,
             capture_mode,
             diarize,
+            huggingface_token,
             diarization_speakers,
             selected_device_id,
             selected_device_label,

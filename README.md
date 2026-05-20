@@ -70,6 +70,8 @@ http://127.0.0.1:8000
 
 ## Expansion Ideas
 
- -  stronger cross-chunk speaker consistency
- -  microphone + system audio
- -  post-processing: summaries, action items, etc.
+- what is the 'current text' field doing right now?
+- segment txt/srt into small paragraphs
+- stronger cross-chunk speaker consistency
+- microphone + system audio
+- post-processing: summaries, action items, etc.

@@ -30,7 +30,22 @@ const state = {
   localDownloadUrls: {
     txt: null,
     srt: null,
+    markdown: null,
   },
+  settingsMenuOpen: false,
+  transcriptView: "timeline",
+  verboseDescriptions: true,
+  statusRawLabel: "Idle",
+  statusRawMessage: "Drop an audio file to begin.",
+  localPairText: "",
+  livePreloadStatusMode: "default",
+  livePreloadText: "",
+  metaStatusRaw: "-",
+  metaSegmentCountRaw: null,
+  metaSpeakerCountRaw: null,
+  downloadOptionCount: 0,
+  downloadsMenuOpen: false,
+  outputStem: "transcript",
 };
 
 const fileInput = document.getElementById("fileInput");
@@ -43,9 +58,18 @@ const fileModeBtn = document.getElementById("fileModeBtn");
 const liveModeBtn = document.getElementById("liveModeBtn");
 const fileModePanel = document.getElementById("fileModePanel");
 const liveModePanel = document.getElementById("liveModePanel");
+const settingsMenuBtn = document.getElementById("settingsMenuBtn");
+const settingsOverlay = document.getElementById("settingsOverlay");
+const settingsBackdrop = document.getElementById("settingsBackdrop");
+const settingsPanel = document.getElementById("settingsPanel");
+const settingsPanelTitle = document.getElementById("settingsPanelTitle");
+const settingsCloseBtn = document.getElementById("settingsCloseBtn");
 const modelSelect = document.getElementById("modelSelect");
 const exportFolder = document.getElementById("exportFolder");
+const themeSelect = document.getElementById("themeSelect");
+const verboseDescriptionsToggle = document.getElementById("verboseDescriptionsToggle");
 const diarizeToggle = document.getElementById("diarizeToggle");
+const diarizationToken = document.getElementById("diarizationToken");
 const diarizeSpeakers = document.getElementById("diarizeSpeakers");
 const startBtn = document.getElementById("startBtn");
 const loadExistingBtn = document.getElementById("loadExistingBtn");
@@ -56,7 +80,12 @@ const liveDevice = document.getElementById("liveDevice");
 const liveMode = document.getElementById("liveMode");
 const liveModel = document.getElementById("liveModel");
 const liveLanguage = document.getElementById("liveLanguage");
+const fileSettingsSection = document.getElementById("fileSettingsSection");
+const liveSettingsSection = document.getElementById("liveSettingsSection");
+const liveThemeSelect = document.getElementById("liveThemeSelect");
+const liveVerboseDescriptionsToggle = document.getElementById("liveVerboseDescriptionsToggle");
 const liveDiarizeToggle = document.getElementById("liveDiarizeToggle");
+const liveDiarizationToken = document.getElementById("liveDiarizationToken");
 const liveDiarizeSpeakers = document.getElementById("liveDiarizeSpeakers");
 const livePreloadBtn = document.getElementById("livePreloadBtn");
 const livePreloadStatus = document.getElementById("livePreloadStatus");
@@ -70,8 +99,14 @@ const statusPercent = document.getElementById("statusPercent");
 const statusMessage = document.getElementById("statusMessage");
 const progressBar = document.getElementById("progressBar");
 const resultPanel = document.getElementById("resultPanel");
+const downloadsMenu = document.getElementById("downloadsMenu");
+const downloadsTrigger = document.getElementById("downloadsTrigger");
+const downloadsList = document.getElementById("downloadsList");
+const downloadsTriggerLabel = document.getElementById("downloadsTriggerLabel");
+const downloadsTriggerHint = document.getElementById("downloadsTriggerHint");
 const downloadTxt = document.getElementById("downloadTxt");
 const downloadSrt = document.getElementById("downloadSrt");
+const downloadMarkdown = document.getElementById("downloadMarkdown");
 const downloadAudio = document.getElementById("downloadAudio");
 const downloadAudio16k = document.getElementById("downloadAudio16k");
 const downloadDiagnostics = document.getElementById("downloadDiagnostics");
@@ -82,12 +117,706 @@ const metaSegments = document.getElementById("metaSegments");
 const audioPlayer = document.getElementById("audioPlayer");
 const transcriptList = document.getElementById("transcriptList");
 const currentTextBox = document.getElementById("currentTextBox");
-
-const liveDebugDownloadAnchors = [downloadAudio, downloadAudio16k, downloadDiagnostics].filter(Boolean);
+const readingViewBtn = document.getElementById("readingViewBtn");
+const readingViewHint = document.getElementById("readingViewHint");
+const readingView = document.getElementById("readingView");
+const methodSwitch = document.querySelector(".method-switch");
+const heroEyebrow = document.querySelector(".eyebrow");
+const heroTitle = document.querySelector(".hero h1");
+const heroSubtitle = document.querySelector(".subtitle");
+const dropTitleLabel = document.querySelector(".drop-title");
+const dropSubtitleLabel = document.querySelector(".drop-subtitle");
+const fileThemeLabel = themeSelect?.closest(".field")?.querySelector("span") || null;
+const liveThemeLabel = liveThemeSelect?.closest(".field")?.querySelector("span") || null;
+const verboseDescriptionsLabel = verboseDescriptionsToggle?.closest("label")?.querySelector("span") || null;
+const liveVerboseDescriptionsLabel = liveVerboseDescriptionsToggle?.closest("label")?.querySelector("span") || null;
+const modelLabel = modelSelect?.closest(".field")?.querySelector("span") || null;
+const exportFolderLabel = exportFolder?.closest(".field")?.querySelector("span") || null;
+const diarizeLabel = diarizeToggle?.closest("label")?.querySelector("span") || null;
+const tokenLabel = diarizationToken?.closest(".field")?.querySelector("span") || null;
+const expectedSpeakersLabel = diarizeSpeakers?.closest(".field")?.querySelector("span") || null;
+const liveSourceLabel = liveSource?.closest(".field")?.querySelector("span") || null;
+const liveCaptureModeLabel = liveCaptureMode?.closest(".field")?.querySelector("span") || null;
+const liveDeviceLabel = liveDevice?.closest(".field")?.querySelector("span") || null;
+const liveModeLabel = liveMode?.closest(".field")?.querySelector("span") || null;
+const liveModelLabel = liveModel?.closest(".field")?.querySelector("span") || null;
+const liveLanguageLabel = liveLanguage?.closest(".field")?.querySelector("span") || null;
+const liveDiarizeLabel = liveDiarizeToggle?.closest("label")?.querySelector("span") || null;
+const liveTokenLabel = liveDiarizationToken?.closest(".field")?.querySelector("span") || null;
+const liveExpectedSpeakersLabel = liveDiarizeSpeakers?.closest(".field")?.querySelector("span") || null;
+const modelWarmupLabel = livePreloadBtn?.closest(".field")?.querySelector("span") || null;
+const resultHeadings = resultPanel?.querySelectorAll("h2") || [];
+const outputsHeading = resultHeadings[0] || null;
+const playerHeading = resultHeadings[1] || null;
+const metaLabels = document.querySelectorAll(".meta-item span");
+const metaStatusLabel = metaLabels[0] || null;
+const metaDeviceLabel = metaLabels[1] || null;
+const metaLanguageLabel = metaLabels[2] || null;
+const metaSegmentsLabel = metaLabels[3] || null;
+const currentTextLabel = document.querySelector(".now-playing span");
+const liveMetricLabels = document.querySelectorAll(".live-metric-top span");
+const inputLevelLabel = liveMetricLabels[0] || null;
+const nextBufferLabel = liveMetricLabels[1] || null;
 
 const busyStates = new Set(["queued", "running"]);
 const liveActiveStates = new Set(["starting", "running", "stopping"]);
 const defaultBufferedIntervalSeconds = 60;
+const defaultTheme = "sand";
+const defaultVerboseDescriptions = true;
+const validThemes = new Set(["sand", "ocean", "ember", "evergreen"]);
+const themeSelects = [themeSelect].filter(Boolean);
+const verboseToggleInputs = [verboseDescriptionsToggle].filter(Boolean);
+const themeSwatches = Array.from(document.querySelectorAll(".theme-swatch"));
+
+const uiText = {
+  verbose: {
+    eyebrow: "Local GPU-First Transcription",
+    title: "Speech-to-Text Meeting Helper",
+    subtitle: "Upload audio, track progress, preview transcript, and download TXT/SRT outputs.",
+    methodSwitchAria: "Transcription method",
+    fileModeBtn: "File Transcription",
+    liveModeBtn: "Live Transcription",
+    dropTitle: "Drop audio here",
+    dropSubtitle: "or click to choose a file",
+    noFileSelected: "No file selected",
+    modelLabel: "Model",
+    exportFolderLabel: "Export Folder",
+    fileMenuLabel: "Settings",
+    liveMenuLabel: "Settings",
+    pageThemeLabel: "Page Theme",
+    verboseDescriptionsLabel: "Verbose descriptions",
+    diarizeLabel: "Label speakers",
+    hfTokenLabel: "Hugging Face Token",
+    expectedSpeakersLabel: "Expected Speakers",
+    autoDetectPlaceholder: "Auto detect",
+    startTranscription: "Start Transcription",
+    working: "Working...",
+    loadPairBtn: "Upload Existing Audio + SRT",
+    noLocalPair: "No local audio/SRT pair loaded",
+    liveSourceLabel: "Live Source",
+    captureModeLabel: "Capture Mode",
+    liveDeviceLabel: "Live Device",
+    onStartLabel: "On Start",
+    liveModelLabel: "Live Model",
+    liveLanguageLabel: "Live Language",
+    liveDiarizeLabel: "Label speakers (buffered HQ only)",
+    liveExpectedSpeakersLabel: "Live Expected Speakers",
+    modelWarmupLabel: "Model Warmup",
+    preloadSelectedModel: "Pre-load Selected Model",
+    preloading: "Pre-loading...",
+    noLivePreload: "No live model pre-loaded in this session",
+    startLive: "Start Live Transcription",
+    stopLive: "Stop Live Transcription",
+    stopping: "Stopping...",
+    inputLevelLabel: "Input Level",
+    nextBufferLabel: "Next Buffer Update",
+    outputsHeading: "Outputs",
+    downloadsTriggerLabel: "Downloads",
+    downloadsHintEmpty: "No files yet",
+    playerHeading: "Player + Transcript",
+    currentTextLabel: "Current Text",
+    metaStatusLabel: "Status",
+    metaDeviceLabel: "Device",
+    metaLanguageLabel: "Language",
+    metaSegmentsLabel: "Segments",
+    downloadTxt: "Download TXT",
+    downloadSrt: "Download SRT",
+    downloadMarkdown: "Download Markdown",
+    downloadAudio: "Captured WAV",
+    downloadAudio16k: "Whisper 16k WAV",
+    downloadDiagnostics: "Diagnostics JSON",
+    transcriptToggleReading: "Reading View",
+    transcriptToggleTimeline: "Timeline View",
+    readingViewHint: "Short paragraphs without timestamps",
+    readingViewBackHint: "Return to the timestamped transcript",
+    transcriptEmpty: "No segments found.",
+    noSystemDevice: "No system device found",
+    noMicDevice: "No microphone found",
+    speakerUnit: "speakers",
+    idleMessage: "Drop an audio file to begin.",
+  },
+  compact: {
+    eyebrow: "Local GPU STT",
+    title: "Meeting Helper",
+    subtitle: "Upload, transcribe, export.",
+    methodSwitchAria: "Mode",
+    fileModeBtn: "Files",
+    liveModeBtn: "Live",
+    dropTitle: "Drop audio",
+    dropSubtitle: "or browse",
+    noFileSelected: "No file",
+    modelLabel: "Model",
+    exportFolderLabel: "Folder",
+    fileMenuLabel: "Menu",
+    liveMenuLabel: "Menu",
+    pageThemeLabel: "Theme",
+    verboseDescriptionsLabel: "Verbose text",
+    diarizeLabel: "Speaker labels",
+    hfTokenLabel: "HF Token",
+    expectedSpeakersLabel: "# Speakers",
+    autoDetectPlaceholder: "Auto",
+    startTranscription: "Transcribe",
+    working: "Working...",
+    loadPairBtn: "Load Audio + SRT",
+    noLocalPair: "No pair loaded",
+    liveSourceLabel: "Source",
+    captureModeLabel: "Mode",
+    liveDeviceLabel: "Device",
+    onStartLabel: "Start",
+    liveModelLabel: "Model",
+    liveLanguageLabel: "Lang",
+    liveDiarizeLabel: "Speaker labels (HQ)",
+    liveExpectedSpeakersLabel: "# Speakers",
+    modelWarmupLabel: "Warmup",
+    preloadSelectedModel: "Pre-load",
+    preloading: "Loading...",
+    noLivePreload: "Not preloaded",
+    startLive: "Start Live",
+    stopLive: "Stop Live",
+    stopping: "Stopping...",
+    inputLevelLabel: "Input",
+    nextBufferLabel: "Buffer",
+    outputsHeading: "Files",
+    downloadsTriggerLabel: "Files",
+    downloadsHintEmpty: "No files",
+    playerHeading: "Player",
+    currentTextLabel: "Now",
+    metaStatusLabel: "State",
+    metaDeviceLabel: "Device",
+    metaLanguageLabel: "Lang",
+    metaSegmentsLabel: "Segs",
+    downloadTxt: "TXT",
+    downloadSrt: "SRT",
+    downloadMarkdown: "MD",
+    downloadAudio: "WAV",
+    downloadAudio16k: "16k",
+    downloadDiagnostics: "JSON",
+    transcriptToggleReading: "Chunks",
+    transcriptToggleTimeline: "Timeline",
+    readingViewHint: "Short paras",
+    readingViewBackHint: "Show times",
+    transcriptEmpty: "No text.",
+    noSystemDevice: "No system device",
+    noMicDevice: "No mic found",
+    speakerUnit: "spk",
+    idleMessage: "Drop audio to start.",
+  },
+};
+
+const selectText = {
+  fileModel: {
+    small: { verbose: "small (recommended)", compact: "small" },
+    tiny: { verbose: "tiny", compact: "tiny" },
+    base: { verbose: "base", compact: "base" },
+    medium: { verbose: "medium", compact: "medium" },
+    "large-v3": { verbose: "large-v3", compact: "large-v3" },
+  },
+  liveSource: {
+    system: { verbose: "System Audio (Loopback)", compact: "System" },
+    mic: { verbose: "Microphone", compact: "Mic" },
+  },
+  liveCaptureMode: {
+    low_latency: { verbose: "Low Latency (faster text)", compact: "Fast" },
+    buffered_hq: { verbose: "Buffered HQ (best quality)", compact: "HQ" },
+  },
+  liveMode: {
+    append: { verbose: "Continue existing text", compact: "Append" },
+    new: { verbose: "Start new transcript", compact: "New" },
+  },
+  liveModel: {
+    small: { verbose: "small (recommended)", compact: "small" },
+    tiny: { verbose: "tiny (lowest quality)", compact: "tiny" },
+    base: { verbose: "base", compact: "base" },
+    medium: { verbose: "medium", compact: "medium" },
+    "large-v3": { verbose: "large-v3 (best quality)", compact: "large-v3" },
+  },
+  liveLanguage: {
+    en: { verbose: "English (recommended)", compact: "English" },
+    auto: { verbose: "Auto Detect", compact: "Auto" },
+  },
+};
+
+const compactStatusLabelMap = {
+  IDLE: "IDLE",
+  READY: "OK",
+  QUEUED: "QUEUE",
+  RUNNING: "RUN",
+  UPLOADING: "UP",
+  LOADING: "LOAD",
+  COMPLETED: "DONE",
+  FAILED: "FAIL",
+  ERROR: "ERR",
+  LIVE: "LIVE",
+  "LIVE ERROR": "L-ERR",
+};
+
+const compactStatusMessageMap = {
+  "Drop an audio file to begin.": uiText.compact.idleMessage,
+  "Failed to fetch job status.": "Status fetch failed.",
+  "Failed to load transcript segments.": "Segment load failed.",
+  "Starting live transcription...": "Starting live...",
+  "Stopping live transcription...": "Stopping live...",
+  "Live transcription failed.": "Live failed.",
+  "Live transcription is idle.": "Live idle.",
+  "Live stream connection lost. Refreshing state...": "Live reconnecting...",
+  "Select a live capture device first.": "Select device.",
+  "Live diarization requires Buffered HQ mode.": "Diarization needs HQ.",
+  "Live expected speakers must be an integer from 1 to 20.": "Speakers: 1-20.",
+  "Choose both an audio file and an SRT file.": "Pick audio + SRT.",
+  "Loading local audio and SRT...": "Loading pair...",
+  "Loaded local audio and SRT for playback.": "Pair loaded.",
+  "Failed to load local files.": "Load failed.",
+  "Stop live transcription before loading local files.": "Stop live first.",
+  "Stop live transcription before uploading a file.": "Stop live first.",
+  "Select an audio file first.": "Pick audio first.",
+  "Expected speakers must be an integer from 1 to 20.": "Speakers: 1-20.",
+  "Uploading audio...": "Uploading...",
+  "Job queued.": "Queued.",
+  "Queued": "Queued",
+  "Loading model": "Loading model...",
+  "Analyzing audio": "Analyzing...",
+  "Transcribing": "Transcribing...",
+  "Running speaker diarization": "Finding speakers...",
+  "Finalizing outputs": "Wrapping up...",
+  "No transcript segments were produced.": "No transcript.",
+  "No segments found.": uiText.compact.transcriptEmpty,
+  "Preparing...": "Prep...",
+  "Failed to preload model.": "Preload failed.",
+};
+
+const applyTheme = (theme, options = {}) => {
+  const persist = options.persist !== false;
+  const nextTheme = validThemes.has(theme) ? theme : defaultTheme;
+  document.documentElement.dataset.theme = nextTheme;
+  for (const select of themeSelects) {
+    if (select.value !== nextTheme) {
+      select.value = nextTheme;
+    }
+  }
+  for (const swatch of themeSwatches) {
+    const isActive = swatch.getAttribute("data-theme-choice") === nextTheme;
+    swatch.classList.toggle("active", isActive);
+    swatch.setAttribute("aria-pressed", isActive ? "true" : "false");
+  }
+  if (!persist) {
+    return;
+  }
+  try {
+    window.localStorage.setItem("meetingHelperTheme", nextTheme);
+  } catch {
+    // Ignore storage failures and still apply the theme for this session.
+  }
+};
+
+const loadSavedTheme = () => {
+  try {
+    return window.localStorage.getItem("meetingHelperTheme") || defaultTheme;
+  } catch {
+    return defaultTheme;
+  }
+};
+
+const loadSavedVerboseDescriptions = () => {
+  try {
+    const value = window.localStorage.getItem("meetingHelperVerboseDescriptions");
+    if (value === null) {
+      return defaultVerboseDescriptions;
+    }
+    return !["0", "false", "off", "no"].includes(String(value).trim().toLowerCase());
+  } catch {
+    return defaultVerboseDescriptions;
+  }
+};
+
+const copyFor = (key) => {
+  const mode = state.verboseDescriptions ? "verbose" : "compact";
+  return uiText[mode][key] ?? uiText.verbose[key] ?? "";
+};
+
+const setSelectCopy = (select, labels) => {
+  if (!select) {
+    return;
+  }
+  const mode = state.verboseDescriptions ? "verbose" : "compact";
+  for (const [value, variants] of Object.entries(labels)) {
+    const option = Array.from(select.options).find((item) => item.value === value);
+    if (!option) {
+      continue;
+    }
+    option.textContent = variants[mode] ?? variants.verbose ?? option.textContent;
+  }
+};
+
+const renderLiveMetricLabels = () => {
+  if (inputLevelLabel) {
+    const selectedSourceLabel = liveSource?.selectedOptions?.[0]?.textContent?.trim()
+      || liveSource?.options?.[liveSource.selectedIndex]?.textContent?.trim()
+      || copyFor("liveSourceLabel");
+    inputLevelLabel.textContent = `${copyFor("inputLevelLabel")} (${selectedSourceLabel})`;
+  }
+  if (nextBufferLabel) {
+    nextBufferLabel.textContent = copyFor("nextBufferLabel");
+  }
+};
+
+const compactStatusLabel = (label) => {
+  const normalized = String(label || "").trim();
+  if (!normalized) {
+    return "";
+  }
+  const upper = normalized.toUpperCase();
+  return compactStatusLabelMap[upper] || upper;
+};
+
+const shortenLivePhrase = (value) => String(value || "")
+  .replace(/system audio/gi, "system")
+  .replace(/microphone/gi, "mic")
+  .replace(/buffered hq/gi, "HQ")
+  .replace(/low latency/gi, "fast")
+  .replace(/diarization/gi, "speakers");
+
+const compactStatusMessage = (message) => {
+  const text = String(message || "");
+  if (!text) {
+    return "";
+  }
+  if (compactStatusMessageMap[text]) {
+    return compactStatusMessageMap[text];
+  }
+
+  let match = text.match(/^Transcribing segment (\d+)$/i);
+  if (match) {
+    return `Seg ${match[1]}...`;
+  }
+
+  match = text.match(/^Listening to (.+) \((.+)\)(.*)\.\.\.$/i);
+  if (match) {
+    const source = shortenLivePhrase(match[1]);
+    const mode = shortenLivePhrase(match[2]);
+    const suffix = String(match[3] || "")
+      .replace(/\+ diarization/gi, "+ speakers")
+      .replace(/\(diarization failed\)/gi, "(speaker fail)");
+    return `Listening: ${source} (${mode})${suffix}`;
+  }
+
+  match = text.match(/^Starting (.+?) transcription\.\.\.$/i);
+  if (match) {
+    return `Starting ${shortenLivePhrase(match[1])}...`;
+  }
+
+  match = text.match(/^Model (.+) pre-loaded\.$/i);
+  if (match) {
+    return `${match[1]} ready.`;
+  }
+
+  match = text.match(/^Already cached:\s*(.+)$/i);
+  if (match) {
+    return `Cached: ${match[1]}`;
+  }
+
+  match = text.match(/^Loaded:\s*(.+)$/i);
+  if (match) {
+    return `Loaded: ${match[1]}`;
+  }
+
+  match = text.match(/^Transcription completed in (.+)\. Speaker labels added\.$/i);
+  if (match) {
+    return `Done in ${match[1]} + speakers.`;
+  }
+
+  match = text.match(/^Transcription completed in (.+)\. Diarization failed; transcript generated without speaker labels\.$/i);
+  if (match) {
+    return `Done in ${match[1]} (no speakers).`;
+  }
+
+  match = text.match(/^Transcription completed in (.+)\.$/i);
+  if (match) {
+    return `Done in ${match[1]}.`;
+  }
+
+  if (/^Transcription completed\. Speaker labels added\.$/i.test(text)) {
+    return "Done + speakers.";
+  }
+  if (/^Transcription completed\. Diarization failed; transcript generated without speaker labels\.$/i.test(text)) {
+    return "Done (no speakers).";
+  }
+  if (/^Transcription completed\.$/i.test(text)) {
+    return "Done.";
+  }
+
+  return text;
+};
+
+const setLivePreloadState = (mode, text = "") => {
+  state.livePreloadStatusMode = mode;
+  state.livePreloadText = text;
+  if (livePreloadStatus) {
+    if (mode === "default") {
+      livePreloadStatus.textContent = copyFor("noLivePreload");
+    } else if (mode === "loading") {
+      livePreloadStatus.textContent = state.verboseDescriptions
+        ? `Pre-loading ${liveModel.value}...`
+        : `Loading ${liveModel.value}...`;
+    } else {
+      livePreloadStatus.textContent = state.verboseDescriptions ? text : compactStatusMessage(text);
+    }
+  }
+};
+
+const setLocalPairText = (text = "") => {
+  state.localPairText = text;
+  if (localPairName) {
+    localPairName.textContent = text || copyFor("noLocalPair");
+  }
+};
+
+const allDownloadAnchors = [
+  downloadTxt,
+  downloadSrt,
+  downloadMarkdown,
+  downloadAudio,
+  downloadAudio16k,
+  downloadDiagnostics,
+].filter(Boolean);
+
+const formatDownloadsHint = (count) => {
+  const safeCount = Math.max(0, Number(count) || 0);
+  if (safeCount <= 0) {
+    return copyFor("downloadsHintEmpty");
+  }
+  if (state.verboseDescriptions) {
+    return `Click to choose (${safeCount})`;
+  }
+  return `Choose (${safeCount})`;
+};
+
+const updateDownloadsMenu = () => {
+  const availableCount = allDownloadAnchors.filter((anchor) => !anchor.classList.contains("hidden")).length;
+  state.downloadOptionCount = availableCount;
+  if (downloadsTriggerLabel) {
+    downloadsTriggerLabel.textContent = copyFor("downloadsTriggerLabel");
+  }
+  if (downloadsTriggerHint) {
+    downloadsTriggerHint.textContent = formatDownloadsHint(availableCount);
+  }
+  if (downloadsTrigger) {
+    downloadsTrigger.setAttribute("aria-disabled", availableCount > 0 ? "false" : "true");
+  }
+  if (availableCount <= 0) {
+    setDownloadsMenuOpen(false);
+  }
+};
+
+const setDownloadsMenuOpen = (open) => {
+  const nextOpen = Boolean(open) && state.downloadOptionCount > 0;
+  state.downloadsMenuOpen = nextOpen;
+  if (downloadsTrigger) {
+    downloadsTrigger.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+  }
+  if (downloadsList) {
+    downloadsList.classList.toggle("hidden", !nextOpen);
+  }
+};
+
+const renderStatus = () => {
+  statusLabel.textContent = state.verboseDescriptions
+    ? state.statusRawLabel
+    : compactStatusLabel(state.statusRawLabel);
+  statusMessage.textContent = state.verboseDescriptions
+    ? state.statusRawMessage
+    : compactStatusMessage(state.statusRawMessage);
+};
+
+const setMetaStatusValue = (value) => {
+  const raw = String(value ?? "-");
+  state.metaStatusRaw = raw;
+  if (state.verboseDescriptions) {
+    metaStatus.textContent = raw;
+    return;
+  }
+  const compactMetaStatusMap = {
+    completed: "done",
+    failed: "fail",
+    local: "local",
+    "live-running": "live-run",
+    "live-starting": "live-start",
+    "live-stopping": "live-stop",
+    "live-idle": "live-idle",
+    "live-error": "live-err",
+  };
+  metaStatus.textContent = compactMetaStatusMap[raw] || raw;
+};
+
+const renderCopyMode = () => {
+  if (methodSwitch) {
+    methodSwitch.setAttribute("aria-label", copyFor("methodSwitchAria"));
+  }
+  if (heroEyebrow) {
+    heroEyebrow.textContent = copyFor("eyebrow");
+  }
+  if (heroTitle) {
+    heroTitle.textContent = copyFor("title");
+  }
+  if (heroSubtitle) {
+    heroSubtitle.textContent = copyFor("subtitle");
+  }
+  fileModeBtn.textContent = copyFor("fileModeBtn");
+  liveModeBtn.textContent = copyFor("liveModeBtn");
+  if (dropTitleLabel) {
+    dropTitleLabel.textContent = copyFor("dropTitle");
+  }
+  if (dropSubtitleLabel) {
+    dropSubtitleLabel.textContent = copyFor("dropSubtitle");
+  }
+  if (!state.file) {
+    fileName.textContent = copyFor("noFileSelected");
+  }
+
+  if (modelLabel) {
+    modelLabel.textContent = copyFor("modelLabel");
+  }
+  if (exportFolderLabel) {
+    exportFolderLabel.textContent = copyFor("exportFolderLabel");
+  }
+  const menuCopyKey = state.uiMode === "live" ? "liveMenuLabel" : "fileMenuLabel";
+  if (settingsMenuBtn) {
+    const menuLabel = copyFor(menuCopyKey);
+    settingsMenuBtn.setAttribute("aria-label", menuLabel);
+    settingsMenuBtn.setAttribute("title", menuLabel);
+  }
+  if (settingsPanelTitle) {
+    settingsPanelTitle.textContent = copyFor(menuCopyKey);
+  }
+  if (fileThemeLabel) {
+    fileThemeLabel.textContent = copyFor("pageThemeLabel");
+  }
+  if (liveThemeLabel) {
+    liveThemeLabel.textContent = copyFor("pageThemeLabel");
+  }
+  if (verboseDescriptionsLabel) {
+    verboseDescriptionsLabel.textContent = copyFor("verboseDescriptionsLabel");
+  }
+  if (liveVerboseDescriptionsLabel) {
+    liveVerboseDescriptionsLabel.textContent = copyFor("verboseDescriptionsLabel");
+  }
+  if (diarizeLabel) {
+    diarizeLabel.textContent = copyFor("diarizeLabel");
+  }
+  if (tokenLabel) {
+    tokenLabel.textContent = copyFor("hfTokenLabel");
+  }
+  if (expectedSpeakersLabel) {
+    expectedSpeakersLabel.textContent = copyFor("expectedSpeakersLabel");
+  }
+  if (liveSourceLabel) {
+    liveSourceLabel.textContent = copyFor("liveSourceLabel");
+  }
+  if (liveCaptureModeLabel) {
+    liveCaptureModeLabel.textContent = copyFor("captureModeLabel");
+  }
+  if (liveDeviceLabel) {
+    liveDeviceLabel.textContent = copyFor("liveDeviceLabel");
+  }
+  if (liveModeLabel) {
+    liveModeLabel.textContent = copyFor("onStartLabel");
+  }
+  if (liveModelLabel) {
+    liveModelLabel.textContent = copyFor("liveModelLabel");
+  }
+  if (liveLanguageLabel) {
+    liveLanguageLabel.textContent = copyFor("liveLanguageLabel");
+  }
+  if (liveDiarizeLabel) {
+    liveDiarizeLabel.textContent = copyFor("liveDiarizeLabel");
+  }
+  if (liveTokenLabel) {
+    liveTokenLabel.textContent = copyFor("hfTokenLabel");
+  }
+  if (liveExpectedSpeakersLabel) {
+    liveExpectedSpeakersLabel.textContent = copyFor("liveExpectedSpeakersLabel");
+  }
+  if (modelWarmupLabel) {
+    modelWarmupLabel.textContent = copyFor("modelWarmupLabel");
+  }
+  if (outputsHeading) {
+    outputsHeading.textContent = copyFor("outputsHeading");
+  }
+  if (playerHeading) {
+    playerHeading.textContent = copyFor("playerHeading");
+  }
+  if (currentTextLabel) {
+    currentTextLabel.textContent = copyFor("currentTextLabel");
+  }
+  if (metaStatusLabel) {
+    metaStatusLabel.textContent = copyFor("metaStatusLabel");
+  }
+  if (metaDeviceLabel) {
+    metaDeviceLabel.textContent = copyFor("metaDeviceLabel");
+  }
+  if (metaLanguageLabel) {
+    metaLanguageLabel.textContent = copyFor("metaLanguageLabel");
+  }
+  if (metaSegmentsLabel) {
+    metaSegmentsLabel.textContent = copyFor("metaSegmentsLabel");
+  }
+
+  diarizeSpeakers.placeholder = copyFor("autoDetectPlaceholder");
+  liveDiarizeSpeakers.placeholder = copyFor("autoDetectPlaceholder");
+  loadExistingBtn.textContent = copyFor("loadPairBtn");
+  downloadTxt.textContent = copyFor("downloadTxt");
+  downloadSrt.textContent = copyFor("downloadSrt");
+  downloadMarkdown.textContent = copyFor("downloadMarkdown");
+  downloadAudio.textContent = copyFor("downloadAudio");
+  downloadAudio16k.textContent = copyFor("downloadAudio16k");
+  downloadDiagnostics.textContent = copyFor("downloadDiagnostics");
+
+  setSelectCopy(modelSelect, selectText.fileModel);
+  setSelectCopy(liveSource, selectText.liveSource);
+  setSelectCopy(liveCaptureMode, selectText.liveCaptureMode);
+  setSelectCopy(liveMode, selectText.liveMode);
+  setSelectCopy(liveModel, selectText.liveModel);
+  setSelectCopy(liveLanguage, selectText.liveLanguage);
+  renderLiveMetricLabels();
+
+  setLocalPairText(state.localPairText);
+  setLivePreloadState(state.livePreloadStatusMode, state.livePreloadText);
+  setMetaStatusValue(state.metaStatusRaw);
+  setMetaSegments(state.metaSegmentCountRaw, state.metaSpeakerCountRaw);
+  renderReadingView();
+  renderTranscriptMode();
+  updateDownloadsMenu();
+  renderStatus();
+
+  if (!state.segments.length && transcriptList.textContent) {
+    if (
+      transcriptList.textContent === uiText.verbose.transcriptEmpty
+      || transcriptList.textContent === uiText.compact.transcriptEmpty
+    ) {
+      transcriptList.textContent = copyFor("transcriptEmpty");
+    }
+  }
+};
+
+const applyDescriptionMode = (verbose, options = {}) => {
+  const persist = options.persist !== false;
+  state.verboseDescriptions = Boolean(verbose);
+  for (const toggle of verboseToggleInputs) {
+    toggle.checked = state.verboseDescriptions;
+  }
+  renderCopyMode();
+  if (liveDevice) {
+    populateLiveDeviceOptions(liveSource.value, liveDevice.value || null);
+  }
+  refreshControls();
+  if (!persist) {
+    return;
+  }
+  try {
+    window.localStorage.setItem("meetingHelperVerboseDescriptions", state.verboseDescriptions ? "true" : "false");
+  } catch {
+    // Ignore storage failures and still update this session.
+  }
+};
 
 const formatTimestamp = (seconds) => {
   const total = Math.floor(Number(seconds));
@@ -106,12 +835,277 @@ const formatSegmentText = (segment) => {
   return `${speaker}: ${text}`;
 };
 
+const sanitizeOutputStem = (value) => String(value || "")
+  .trim()
+  .replace(/\.[^/.\\]+$/, "")
+  .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, "-")
+  .replace(/\s+/g, "-")
+  .replace(/-+/g, "-")
+  .replace(/^[-.]+|[-.]+$/g, "");
+
+const setOutputStem = (value) => {
+  const fallback = state.uiMode === "live" ? "live-transcript" : "transcript";
+  state.outputStem = sanitizeOutputStem(value) || fallback;
+};
+
+const getOutputStem = () => {
+  if (state.outputStem) {
+    return state.outputStem;
+  }
+  if (state.uiMode === "live") {
+    return "live-transcript";
+  }
+  if (state.file?.name) {
+    return sanitizeOutputStem(state.file.name) || "transcript";
+  }
+  return "transcript";
+};
+
+const collapseWhitespace = (value) => String(value || "").replace(/\s+/g, " ").trim();
+
+const sentenceBoundaryPattern = /[.!?]+["')\]]*$/;
+
+const sentenceEnds = (value) => sentenceBoundaryPattern.test(collapseWhitespace(value));
+
+const splitSentenceTokens = (value) => {
+  const text = collapseWhitespace(value);
+  if (!text) {
+    return [];
+  }
+
+  const tokens = [];
+  const boundaryPattern = /[.!?]+["')\]]*(?=\s+)/g;
+  let start = 0;
+  let match = boundaryPattern.exec(text);
+  while (match) {
+    const end = match.index + match[0].length;
+    const token = text.slice(start, end).trim();
+    if (token) {
+      tokens.push(token);
+    }
+    start = end;
+    while (text[start] === " ") {
+      start += 1;
+    }
+    match = boundaryPattern.exec(text);
+  }
+
+  const remainder = text.slice(start).trim();
+  if (remainder) {
+    tokens.push(remainder);
+  }
+  return tokens;
+};
+
+const getMinuteStart = (seconds) => {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  return Math.floor(value / 60) * 60;
+};
+
+const buildReadingParagraphItems = (segments) => {
+  const paragraphs = [];
+  let currentParts = [];
+  let currentChars = 0;
+  let currentSpeaker = null;
+  let currentStart = null;
+  let currentTokenCount = 0;
+
+  const softCharLimit = 420;
+  const hardCharLimit = 900;
+  const softTokenLimit = 8;
+
+  const flush = () => {
+    if (!currentParts.length) {
+      return;
+    }
+    paragraphs.push({
+      start: currentStart,
+      text: currentParts.join(" ").trim(),
+    });
+    currentParts = [];
+    currentChars = 0;
+    currentSpeaker = null;
+    currentStart = null;
+    currentTokenCount = 0;
+  };
+
+  for (const segment of segments) {
+    const tokens = splitSentenceTokens(segment.text);
+    if (!tokens.length) {
+      continue;
+    }
+
+    const speaker = collapseWhitespace(segment.speaker);
+    const speakerChanged = currentSpeaker !== null && speaker !== currentSpeaker;
+    if (speakerChanged) {
+      flush();
+    }
+
+    for (const token of tokens) {
+      let piece = token;
+      if (speaker) {
+        piece = currentParts.length ? token : `${speaker}: ${token}`;
+      }
+
+      const projectedChars = currentChars + piece.length + (currentParts.length ? 1 : 0);
+      const canBreakCleanly = currentParts.length && sentenceEnds(currentParts[currentParts.length - 1]);
+      if (
+        currentParts.length
+        && (
+          (canBreakCleanly && (projectedChars > softCharLimit || currentTokenCount >= softTokenLimit))
+          || projectedChars > hardCharLimit
+        )
+      ) {
+        flush();
+        piece = speaker ? `${speaker}: ${token}` : token;
+      }
+
+      if (!currentParts.length) {
+        currentSpeaker = speaker || "";
+        currentStart = Number.isFinite(Number(segment.start)) ? Number(segment.start) : null;
+      }
+
+      currentParts.push(piece);
+      currentChars += piece.length + (currentParts.length > 1 ? 1 : 0);
+      currentTokenCount += 1;
+
+      if (sentenceEnds(token) && currentChars >= 300) {
+        flush();
+      }
+    }
+  }
+
+  flush();
+  return paragraphs;
+};
+
+const buildReadingParagraphs = (segments) => buildReadingParagraphItems(segments)
+  .map((paragraph) => paragraph.text);
+
+const buildMarkdownFromSegments = (segments, title = "transcript") => {
+  const paragraphs = buildReadingParagraphItems(segments);
+  const heading = sanitizeOutputStem(title) || "transcript";
+  const lines = [`# ${heading.replace(/-/g, " ")}`, ""];
+  if (!paragraphs.length) {
+    lines.push(copyFor("transcriptEmpty"));
+  } else {
+    let currentMinuteStart = null;
+    for (const paragraph of paragraphs) {
+      const minuteStart = getMinuteStart(paragraph.start);
+      if (minuteStart !== null && minuteStart !== currentMinuteStart) {
+        currentMinuteStart = minuteStart;
+        lines.push(`## ${formatTimestamp(minuteStart)}`, "");
+      }
+      lines.push(paragraph.text, "");
+    }
+  }
+  return `${lines.join("\n").trimEnd()}\n`;
+};
+
+const renderReadingView = () => {
+  if (!readingView) {
+    return;
+  }
+
+  const paragraphs = buildReadingParagraphs(state.segments);
+  if (!paragraphs.length) {
+    readingView.textContent = copyFor("transcriptEmpty");
+    return;
+  }
+
+  readingView.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+  for (const paragraph of paragraphs) {
+    const node = document.createElement("p");
+    node.className = "reading-paragraph";
+    node.textContent = paragraph;
+    fragment.appendChild(node);
+  }
+  readingView.appendChild(fragment);
+};
+
+const renderTranscriptMode = () => {
+  const readingMode = state.transcriptView === "reading";
+  if (transcriptList) {
+    transcriptList.classList.toggle("hidden", readingMode);
+  }
+  if (readingView) {
+    readingView.classList.toggle("hidden", !readingMode);
+  }
+  if (readingViewBtn) {
+    const hasSegments = state.segments.length > 0;
+    readingViewBtn.disabled = !hasSegments;
+    readingViewBtn.classList.toggle("active", readingMode);
+    readingViewBtn.setAttribute("aria-pressed", readingMode ? "true" : "false");
+    readingViewBtn.textContent = copyFor(readingMode ? "transcriptToggleTimeline" : "transcriptToggleReading");
+  }
+  if (readingViewHint) {
+    readingViewHint.textContent = copyFor(readingMode ? "readingViewBackHint" : "readingViewHint");
+  }
+};
+
+const setTranscriptView = (mode) => {
+  state.transcriptView = mode === "reading" ? "reading" : "timeline";
+  renderReadingView();
+  renderTranscriptMode();
+};
+
+const syncMarkdownDownload = (stem = getOutputStem()) => {
+  if (state.localDownloadUrls.markdown) {
+    URL.revokeObjectURL(state.localDownloadUrls.markdown);
+    state.localDownloadUrls.markdown = null;
+  }
+
+  if (!downloadMarkdown) {
+    return;
+  }
+
+  downloadMarkdown.removeAttribute("href");
+  downloadMarkdown.removeAttribute("download");
+  downloadMarkdown.classList.add("hidden");
+
+  if (!state.segments.length) {
+    updateDownloadsMenu();
+    return;
+  }
+
+  const resolvedStem = sanitizeOutputStem(stem) || getOutputStem();
+  const markdownBlob = new Blob(
+    [buildMarkdownFromSegments(state.segments, resolvedStem)],
+    { type: "text/markdown;charset=utf-8" },
+  );
+  const markdownUrl = URL.createObjectURL(markdownBlob);
+
+  state.localDownloadUrls.markdown = markdownUrl;
+  downloadMarkdown.href = markdownUrl;
+  downloadMarkdown.download = `${resolvedStem}.md`;
+  downloadMarkdown.classList.remove("hidden");
+  updateDownloadsMenu();
+};
+
 const setMetaSegments = (segmentCount, speakerCount = null) => {
+  if (segmentCount === null || segmentCount === undefined || segmentCount === "-") {
+    state.metaSegmentCountRaw = null;
+    state.metaSpeakerCountRaw = null;
+    metaSegments.textContent = "-";
+    return;
+  }
   const count = Number(segmentCount);
+  if (!Number.isFinite(count)) {
+    state.metaSegmentCountRaw = null;
+    state.metaSpeakerCountRaw = null;
+    metaSegments.textContent = "-";
+    return;
+  }
   const safeCount = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0;
   const speakers = Number(speakerCount);
+  state.metaSegmentCountRaw = safeCount;
+  state.metaSpeakerCountRaw = Number.isFinite(speakers) ? Math.trunc(speakers) : null;
   if (Number.isFinite(speakers) && speakers > 0) {
-    metaSegments.textContent = `${safeCount} (${Math.trunc(speakers)} speakers)`;
+    metaSegments.textContent = `${safeCount} (${Math.trunc(speakers)} ${copyFor("speakerUnit")})`;
     return;
   }
   metaSegments.textContent = String(safeCount);
@@ -192,7 +1186,7 @@ const renderLiveDiagnostics = () => {
   bufferCountdownBar.style.width = `${Math.max(0, ratio * 100).toFixed(1)}%`;
 
   if (remaining === null) {
-    bufferCountdownLabel.textContent = "Preparing...";
+    bufferCountdownLabel.textContent = state.verboseDescriptions ? "Preparing..." : "Prep...";
     return;
   }
 
@@ -263,8 +1257,9 @@ const setProgress = (fraction) => {
 };
 
 const setStatus = (label, message, progress = null) => {
-  statusLabel.textContent = label;
-  statusMessage.textContent = message;
+  state.statusRawLabel = String(label || "");
+  state.statusRawMessage = String(message || "");
+  renderStatus();
   if (progress !== null) {
     setProgress(progress);
   }
@@ -293,31 +1288,35 @@ const revokeLocalDownloads = () => {
     URL.revokeObjectURL(state.localDownloadUrls.srt);
     state.localDownloadUrls.srt = null;
   }
+  if (state.localDownloadUrls.markdown) {
+    URL.revokeObjectURL(state.localDownloadUrls.markdown);
+    state.localDownloadUrls.markdown = null;
+  }
 };
 
 const clearDownloadLinks = () => {
   revokeLocalDownloads();
-  downloadTxt.removeAttribute("href");
-  downloadSrt.removeAttribute("href");
-  downloadTxt.removeAttribute("download");
-  downloadSrt.removeAttribute("download");
-  for (const anchor of liveDebugDownloadAnchors) {
+  for (const anchor of allDownloadAnchors) {
     anchor.removeAttribute("href");
     anchor.removeAttribute("download");
     anchor.classList.add("hidden");
   }
+  updateDownloadsMenu();
 };
 
 const setServerDownloads = (downloads) => {
   clearDownloadLinks();
   if (!downloads) {
+    syncMarkdownDownload();
     return;
   }
   if (downloads.txt) {
     downloadTxt.href = downloads.txt;
+    downloadTxt.classList.remove("hidden");
   }
   if (downloads.srt) {
     downloadSrt.href = downloads.srt;
+    downloadSrt.classList.remove("hidden");
   }
   if (downloads.audio && downloadAudio) {
     downloadAudio.href = downloads.audio;
@@ -331,6 +1330,8 @@ const setServerDownloads = (downloads) => {
     downloadDiagnostics.href = downloads.diagnostics;
     downloadDiagnostics.classList.remove("hidden");
   }
+  syncMarkdownDownload();
+  updateDownloadsMenu();
 };
 
 const setLivePlayerAudio = (audioUrl, sessionId = null) => {
@@ -395,14 +1396,52 @@ const setLocalDownloadsFromSegments = (segments, stem = "transcript") => {
   downloadSrt.href = srtUrl;
   downloadTxt.download = `${stem}.txt`;
   downloadSrt.download = `${stem}.srt`;
+  downloadTxt.classList.remove("hidden");
+  downloadSrt.classList.remove("hidden");
+  syncMarkdownDownload(stem);
+  updateDownloadsMenu();
 };
 
 const setFile = (file) => {
   state.file = file;
-  fileName.textContent = file ? file.name : "No file selected";
+  if (file?.name) {
+    setOutputStem(file.name);
+  }
+  fileName.textContent = file ? file.name : copyFor("noFileSelected");
 };
 
 const isLiveActive = () => liveActiveStates.has(state.liveStatus);
+
+const syncSettingsSections = () => {
+  const isLiveMode = state.uiMode === "live";
+  if (fileSettingsSection) {
+    fileSettingsSection.classList.toggle("hidden", isLiveMode);
+  }
+  if (liveSettingsSection) {
+    liveSettingsSection.classList.toggle("hidden", !isLiveMode);
+  }
+};
+
+const setSettingsMenuOpen = (open, options = {}) => {
+  const returnFocus = options.returnFocus !== false;
+  state.settingsMenuOpen = Boolean(open);
+  if (settingsOverlay) {
+    settingsOverlay.classList.toggle("open", state.settingsMenuOpen);
+    settingsOverlay.setAttribute("aria-hidden", state.settingsMenuOpen ? "false" : "true");
+  }
+  if (settingsMenuBtn) {
+    settingsMenuBtn.setAttribute("aria-expanded", state.settingsMenuOpen ? "true" : "false");
+  }
+  document.body.classList.toggle("settings-open", state.settingsMenuOpen);
+  if (state.settingsMenuOpen) {
+    window.setTimeout(() => {
+      settingsCloseBtn?.focus();
+    }, 0);
+  } else if (returnFocus) {
+    settingsMenuBtn?.focus();
+  }
+};
+
 
 const setUIMode = (mode, options = {}) => {
   const nextMode = mode === "live" ? "live" : "file";
@@ -425,6 +1464,7 @@ const setUIMode = (mode, options = {}) => {
   liveModePanel.classList.toggle("hidden", !isLiveMode);
   fileModeBtn.classList.toggle("active", !isLiveMode);
   liveModeBtn.classList.toggle("active", isLiveMode);
+  syncSettingsSections();
   return true;
 };
 
@@ -442,7 +1482,7 @@ const populateLiveDeviceOptions = (source, preferredId = null) => {
   if (!devices.length) {
     const option = document.createElement("option");
     option.value = "";
-    option.textContent = source === "system" ? "No system device found" : "No microphone found";
+    option.textContent = source === "system" ? copyFor("noSystemDevice") : copyFor("noMicDevice");
     liveDevice.appendChild(option);
     liveDevice.disabled = true;
     return;
@@ -478,6 +1518,9 @@ const refreshControls = () => {
   if (diarizeToggle) {
     diarizeToggle.disabled = lockFileActions;
   }
+  if (diarizationToken) {
+    diarizationToken.disabled = lockFileActions || !(diarizeToggle && diarizeToggle.checked);
+  }
   if (diarizeSpeakers) {
     diarizeSpeakers.disabled = lockFileActions || !(diarizeToggle && diarizeToggle.checked);
   }
@@ -499,6 +1542,10 @@ const refreshControls = () => {
     }
     liveDiarizeToggle.disabled = lockLiveSelectors || !liveDiarizationEligible;
   }
+  if (liveDiarizationToken) {
+    const tokenEnabled = liveDiarizationEligible && liveDiarizeToggle && liveDiarizeToggle.checked;
+    liveDiarizationToken.disabled = lockLiveSelectors || !tokenEnabled;
+  }
   if (liveDiarizeSpeakers) {
     const speakersEnabled = liveDiarizationEligible && liveDiarizeToggle && liveDiarizeToggle.checked;
     if (!speakersEnabled && !lockLiveSelectors) {
@@ -507,19 +1554,19 @@ const refreshControls = () => {
     liveDiarizeSpeakers.disabled = lockLiveSelectors || !speakersEnabled;
   }
   livePreloadBtn.disabled = lockLiveSelectors || state.livePreloadPending;
-  livePreloadBtn.textContent = state.livePreloadPending ? "Pre-loading..." : "Pre-load Selected Model";
+  livePreloadBtn.textContent = state.livePreloadPending ? copyFor("preloading") : copyFor("preloadSelectedModel");
 
   if (state.batchBusy) {
-    startBtn.textContent = "Working...";
+    startBtn.textContent = copyFor("working");
   } else {
-    startBtn.textContent = "Start Transcription";
+    startBtn.textContent = copyFor("startTranscription");
   }
 
   if (isLiveActive()) {
-    liveToggleBtn.textContent = state.liveStatus === "stopping" ? "Stopping..." : "Stop Live Transcription";
+    liveToggleBtn.textContent = state.liveStatus === "stopping" ? copyFor("stopping") : copyFor("stopLive");
     liveToggleBtn.classList.add("running");
   } else {
-    liveToggleBtn.textContent = "Start Live Transcription";
+    liveToggleBtn.textContent = copyFor("startLive");
     liveToggleBtn.classList.remove("running");
   }
 
@@ -543,18 +1590,22 @@ const setLivePreloadPending = (pending) => {
 
 const resetTranscript = () => {
   transcriptList.innerHTML = "";
+  if (readingView) {
+    readingView.textContent = copyFor("transcriptEmpty");
+  }
   currentTextBox.value = "";
   state.segments = [];
   state.lineElements = [];
   state.activeLineIndex = -1;
+  renderTranscriptMode();
 };
 
 const resetResults = () => {
   resultPanel.classList.add("hidden");
-  metaStatus.textContent = "-";
+  setMetaStatusValue("-");
   metaDevice.textContent = "-";
   metaLanguage.textContent = "-";
-  metaSegments.textContent = "-";
+  setMetaSegments(null, null);
   clearLocalAudioObjectUrl();
   audioPlayer.removeAttribute("src");
   audioPlayer.load();
@@ -665,9 +1716,12 @@ const renderSegments = (rawSegments) => {
   resetTranscript();
   const segments = normalizeSegments(rawSegments);
   state.segments = segments;
+  renderReadingView();
+  syncMarkdownDownload();
+  renderTranscriptMode();
 
   if (!segments.length) {
-    transcriptList.textContent = "No segments found.";
+    transcriptList.textContent = copyFor("transcriptEmpty");
     return;
   }
 
@@ -679,6 +1733,7 @@ const renderSegments = (rawSegments) => {
     fragment.appendChild(row);
   }
   transcriptList.appendChild(fragment);
+  renderTranscriptMode();
 };
 
 const appendSegment = (rawSegment) => {
@@ -686,7 +1741,10 @@ const appendSegment = (rawSegment) => {
   if (!normalized) {
     return;
   }
-  if (transcriptList.textContent === "No segments found.") {
+  if (
+    transcriptList.textContent === uiText.verbose.transcriptEmpty
+    || transcriptList.textContent === uiText.compact.transcriptEmpty
+  ) {
     transcriptList.innerHTML = "";
   }
 
@@ -695,6 +1753,9 @@ const appendSegment = (rawSegment) => {
   const row = buildSegmentRow(normalized, state.segments.length - 1);
   state.lineElements.push(row);
   transcriptList.appendChild(row);
+  renderReadingView();
+  syncMarkdownDownload();
+  renderTranscriptMode();
   setActiveLine(state.segments.length - 1, true);
 };
 
@@ -774,7 +1835,7 @@ const parseSrtText = (srtText) => {
 };
 
 const applyJobMeta = (job) => {
-  metaStatus.textContent = job.status;
+  setMetaStatusValue(job.status);
   metaDevice.textContent = `${job.device || "-"}${job.compute_type ? ` (${job.compute_type})` : ""}`;
   metaLanguage.textContent = job.language
     ? `${job.language} (${(Number(job.language_probability) * 100).toFixed(1)}%)`
@@ -836,7 +1897,7 @@ const pollJob = async () => {
       await handleCompleted(job);
     } else {
       setStatus("FAILED", job.error || "Transcription failed.", 1);
-      metaStatus.textContent = "failed";
+      setMetaStatusValue("failed");
       resultPanel.classList.remove("hidden");
     }
   } catch (error) {
@@ -858,6 +1919,9 @@ const getErrorDetail = async (response, fallback) => {
 const applyLiveState = (liveState, preferStatusMessage = true) => {
   const prevStatus = state.liveStatus;
   state.liveStatus = String(liveState.status || "idle");
+  if (state.liveStatus === "running" || state.liveStatus === "starting" || Number(liveState.segment_count || 0) > 0) {
+    setOutputStem("live-transcript");
+  }
   if (isLiveActive()) {
     setUIMode("live", { force: true });
   }
@@ -886,6 +1950,7 @@ const applyLiveState = (liveState, preferStatusMessage = true) => {
   if (liveState.device_id !== undefined) {
     populateLiveDeviceOptions(liveSource.value, liveState.device_id || null);
   }
+  renderLiveMetricLabels();
   applyLiveMetrics(liveState);
 
   setLivePending(false);
@@ -934,16 +1999,16 @@ const applyLiveState = (liveState, preferStatusMessage = true) => {
 
   if (state.liveStatus === "running" || state.liveStatus === "starting" || state.liveStatus === "stopping") {
     resultPanel.classList.remove("hidden");
-    metaStatus.textContent = `live-${state.liveStatus}`;
+    setMetaStatusValue(`live-${state.liveStatus}`);
     metaDevice.textContent = liveState.device_label || (liveState.source === "system" ? "system loopback" : "microphone");
     metaLanguage.textContent = "-";
   } else if (state.liveStatus === "idle" && Number(liveState.segment_count || 0) > 0) {
     resultPanel.classList.remove("hidden");
-    metaStatus.textContent = "live-idle";
+    setMetaStatusValue("live-idle");
     metaDevice.textContent = liveState.device_label || (liveState.source === "system" ? "system loopback" : "microphone");
     metaLanguage.textContent = "-";
   } else if (state.liveStatus === "error") {
-    metaStatus.textContent = "live-error";
+    setMetaStatusValue("live-error");
   }
 
   if (liveState.downloads) {
@@ -953,6 +2018,7 @@ const applyLiveState = (liveState, preferStatusMessage = true) => {
     }
   } else if (state.liveStatus === "running" || state.liveStatus === "starting") {
     clearDownloadLinks();
+    syncMarkdownDownload("live-transcript");
   }
 };
 
@@ -961,6 +2027,7 @@ const fetchLiveSegments = async () => {
   if (!response.ok) {
     return;
   }
+  setOutputStem("live-transcript");
   const segments = await response.json();
   renderSegments(segments);
   if (segments.length) {
@@ -1006,14 +2073,16 @@ const handleLiveSegmentMessage = (segment, liveState) => {
   if (state.batchBusy) {
     return;
   }
+  setOutputStem("live-transcript");
   resultPanel.classList.remove("hidden");
   appendSegment(segment);
-  metaStatus.textContent = "live-running";
+  setMetaStatusValue("live-running");
   metaDevice.textContent = liveState?.device_label
     || (liveSource.value === "system" ? "system loopback" : "microphone");
   metaLanguage.textContent = "-";
   setMetaSegments(state.segments.length, liveState?.speaker_count);
   clearDownloadLinks();
+  syncMarkdownDownload("live-transcript");
   if (liveState) {
     applyLiveState(liveState, false);
   }
@@ -1037,6 +2106,7 @@ const connectLiveSocket = () => {
         applyLiveMetrics(payload.metrics);
       } else if (payload.type === "live_snapshot" && Array.isArray(payload.segments) && !state.batchBusy) {
         if (payload.segments.length) {
+          setOutputStem("live-transcript");
           resultPanel.classList.remove("hidden");
           renderSegments(payload.segments);
         }
@@ -1066,7 +2136,7 @@ const preloadSelectedLiveModel = async () => {
   }
 
   setLivePreloadPending(true);
-  livePreloadStatus.textContent = `Pre-loading ${liveModel.value}...`;
+  setLivePreloadState("loading");
   try {
     const response = await fetch("/api/models/preload", {
       method: "POST",
@@ -1084,13 +2154,16 @@ const preloadSelectedLiveModel = async () => {
       ? (loadSeconds < 1 ? `${Math.round(loadSeconds * 1000)}ms` : `${loadSeconds.toFixed(1)}s`)
       : null;
     const cachePrefix = payload.cached_before ? "Already cached" : "Loaded";
-    livePreloadStatus.textContent = `${cachePrefix}: ${payload.model} on ${payload.device} (${payload.compute_type})${loadLabel ? ` in ${loadLabel}` : ""}`;
+    setLivePreloadState(
+      "success",
+      `${cachePrefix}: ${payload.model} on ${payload.device} (${payload.compute_type})${loadLabel ? ` in ${loadLabel}` : ""}`,
+    );
     if (!state.batchBusy) {
       setStatus("READY", `Model ${payload.model} pre-loaded.`, 1);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to preload model.";
-    livePreloadStatus.textContent = message;
+    setLivePreloadState("error", message);
     if (!state.batchBusy) {
       setStatus("ERROR", message, 1);
     }
@@ -1103,6 +2176,7 @@ const startLive = async () => {
   if (state.batchBusy) {
     return;
   }
+  setOutputStem("live-transcript");
   setUIMode("live", { force: true });
   if (!liveDevice.value) {
     setStatus("ERROR", "Select a live capture device first.", 1);
@@ -1110,6 +2184,9 @@ const startLive = async () => {
   }
 
   const liveDiarizeEnabled = Boolean(liveDiarizeToggle && liveDiarizeToggle.checked);
+  const liveToken = liveDiarizeEnabled && liveDiarizationToken
+    ? liveDiarizationToken.value.trim()
+    : "";
   let liveDiarizationSpeakers = null;
   if (liveDiarizeEnabled && liveCaptureMode.value !== "buffered_hq") {
     setStatus("ERROR", "Live diarization requires Buffered HQ mode.", 1);
@@ -1152,6 +2229,7 @@ const startLive = async () => {
       device_id: liveDevice.value || null,
       capture_mode: liveCaptureMode.value,
       diarize: liveDiarizeEnabled,
+      huggingface_token: liveDiarizeEnabled && liveToken ? liveToken : null,
       diarization_speakers: liveDiarizeEnabled ? liveDiarizationSpeakers : null,
     }),
   });
@@ -1215,13 +2293,14 @@ const loadLocalPair = async () => {
 
     renderSegments(parsed);
     resultPanel.classList.remove("hidden");
-    metaStatus.textContent = "local";
+    setMetaStatusValue("local");
     metaDevice.textContent = "browser";
     metaLanguage.textContent = "-";
-    metaSegments.textContent = String(parsed.length);
-    localPairName.textContent = `${audioFile.name} + ${srtFile.name}`;
+    setMetaSegments(parsed.length);
+    setLocalPairText(`${audioFile.name} + ${srtFile.name}`);
 
     const stem = srtFile.name.replace(/\.[^/.]+$/, "") || "local-transcript";
+    setOutputStem(stem);
     setLocalDownloadsFromSegments(parsed, stem);
     setStatus("READY", "Loaded local audio and SRT for playback.", 1);
   } catch (error) {
@@ -1302,6 +2381,7 @@ liveModeBtn.addEventListener("click", () => {
 
 liveSource.addEventListener("change", () => {
   populateLiveDeviceOptions(liveSource.value);
+  renderLiveMetricLabels();
   refreshControls();
 });
 
@@ -1311,7 +2391,7 @@ liveCaptureMode.addEventListener("change", () => {
 
 liveModel.addEventListener("change", () => {
   if (!state.livePreloadPending) {
-    livePreloadStatus.textContent = "No live model pre-loaded in this session";
+    setLivePreloadState("default");
   }
 });
 
@@ -1331,6 +2411,75 @@ liveToggleBtn.addEventListener("click", async () => {
   }
 });
 
+if (settingsMenuBtn) {
+  settingsMenuBtn.addEventListener("click", () => {
+    setSettingsMenuOpen(!state.settingsMenuOpen, { returnFocus: !state.settingsMenuOpen });
+  });
+}
+
+if (settingsBackdrop) {
+  settingsBackdrop.addEventListener("click", () => {
+    setSettingsMenuOpen(false);
+  });
+}
+
+if (settingsCloseBtn) {
+  settingsCloseBtn.addEventListener("click", () => {
+    setSettingsMenuOpen(false);
+  });
+}
+
+if (settingsPanel) {
+  settingsPanel.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+}
+
+for (const select of themeSelects) {
+  select.addEventListener("change", () => {
+    applyTheme(select.value);
+  });
+}
+
+for (const swatch of themeSwatches) {
+  swatch.addEventListener("click", (event) => {
+    event.preventDefault();
+    const nextTheme = swatch.getAttribute("data-theme-choice") || defaultTheme;
+    applyTheme(nextTheme);
+  });
+}
+
+if (downloadsTrigger) {
+  downloadsTrigger.addEventListener("click", (event) => {
+    event.preventDefault();
+    if (state.downloadOptionCount <= 0) {
+      return;
+    }
+    setDownloadsMenuOpen(!state.downloadsMenuOpen);
+  });
+}
+
+for (const anchor of allDownloadAnchors) {
+  anchor.addEventListener("click", () => {
+    setDownloadsMenuOpen(false);
+  });
+}
+
+for (const toggle of verboseToggleInputs) {
+  toggle.addEventListener("change", () => {
+    applyDescriptionMode(toggle.checked);
+  });
+}
+
+if (readingViewBtn) {
+  readingViewBtn.addEventListener("click", () => {
+    if (!state.segments.length) {
+      return;
+    }
+    setTranscriptView(state.transcriptView === "reading" ? "timeline" : "reading");
+  });
+}
+
 if (diarizeToggle) {
   diarizeToggle.addEventListener("change", () => {
     refreshControls();
@@ -1342,6 +2491,27 @@ if (liveDiarizeToggle) {
     refreshControls();
   });
 }
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    if (state.downloadsMenuOpen) {
+      setDownloadsMenuOpen(false);
+    }
+    if (state.settingsMenuOpen) {
+      setSettingsMenuOpen(false);
+    }
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (!state.downloadsMenuOpen || !downloadsMenu) {
+    return;
+  }
+  if (downloadsMenu.contains(event.target)) {
+    return;
+  }
+  setDownloadsMenuOpen(false);
+});
 
 uploadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1375,7 +2545,13 @@ uploadForm.addEventListener("submit", async (event) => {
   formData.append("model", modelSelect.value);
   formData.append("export_folder", exportFolder.value || "default");
   const diarizeEnabled = Boolean(diarizeToggle && diarizeToggle.checked);
+  const huggingfaceToken = diarizeEnabled && diarizationToken
+    ? diarizationToken.value.trim()
+    : "";
   formData.append("diarize", diarizeEnabled ? "true" : "false");
+  if (diarizeEnabled && huggingfaceToken) {
+    formData.append("huggingface_token", huggingfaceToken);
+  }
   if (diarizeEnabled && diarizeSpeakers) {
     const trimmed = diarizeSpeakers.value.trim();
     if (trimmed) {
@@ -1406,5 +2582,7 @@ connectLiveSocket();
 void loadLiveDevices().then(() => fetchLiveState());
 ensureDiagnosticsTicker();
 setUIMode("file", { force: true });
+applyTheme(loadSavedTheme(), { persist: false });
+applyDescriptionMode(loadSavedVerboseDescriptions(), { persist: false });
 renderLiveDiagnostics();
 refreshControls();

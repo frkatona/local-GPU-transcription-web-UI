@@ -401,6 +401,158 @@ def format_segment_text(text: str, speaker: str | None = None) -> str:
     return cleaned
 
 
+SENTENCE_BOUNDARY_RE = re.compile(r"[.!?]+[\"')\]]*$")
+SENTENCE_SPLIT_RE = re.compile(r"[.!?]+[\"')\]]*(?=\s+)")
+
+
+def collapse_whitespace(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def sentence_ends(value: str) -> bool:
+    return SENTENCE_BOUNDARY_RE.search(collapse_whitespace(value)) is not None
+
+
+def split_sentence_tokens(value: Any) -> list[str]:
+    text = collapse_whitespace(value)
+    if not text:
+        return []
+
+    tokens: list[str] = []
+    start = 0
+    for match in SENTENCE_SPLIT_RE.finditer(text):
+        end = match.end()
+        token = text[start:end].strip()
+        if token:
+            tokens.append(token)
+        start = end
+        while start < len(text) and text[start] == " ":
+            start += 1
+
+    remainder = text[start:].strip()
+    if remainder:
+        tokens.append(remainder)
+    return tokens
+
+
+def safe_segment_start(segment: dict[str, Any]) -> float | None:
+    try:
+        start = float(segment.get("start"))
+    except (TypeError, ValueError):
+        return None
+    if start < 0:
+        return None
+    return start
+
+
+def minute_start(seconds: float | None) -> int | None:
+    if seconds is None:
+        return None
+    return int(seconds // 60) * 60
+
+
+def build_reading_paragraph_items(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    paragraphs: list[dict[str, Any]] = []
+    current_parts: list[str] = []
+    current_chars = 0
+    current_speaker: str | None = None
+    current_start: float | None = None
+    current_token_count = 0
+
+    soft_char_limit = 420
+    hard_char_limit = 900
+    soft_token_limit = 8
+
+    def flush() -> None:
+        nonlocal current_parts
+        nonlocal current_chars
+        nonlocal current_speaker
+        nonlocal current_start
+        nonlocal current_token_count
+
+        if not current_parts:
+            return
+        paragraphs.append(
+            {
+                "start": current_start,
+                "text": " ".join(current_parts).strip(),
+            }
+        )
+        current_parts = []
+        current_chars = 0
+        current_speaker = None
+        current_start = None
+        current_token_count = 0
+
+    for segment in segments:
+        tokens = split_sentence_tokens(segment.get("text"))
+        if not tokens:
+            continue
+
+        segment_start = safe_segment_start(segment)
+        if (
+            current_parts
+            and sentence_ends(current_parts[-1])
+            and minute_start(segment_start) is not None
+            and minute_start(current_start) is not None
+            and minute_start(segment_start) > minute_start(current_start)
+        ):
+            flush()
+
+        speaker = collapse_whitespace(segment.get("speaker"))
+        if current_speaker is not None and speaker != current_speaker:
+            flush()
+
+        for token in tokens:
+            piece = token
+            if speaker:
+                piece = token if current_parts else f"{speaker}: {token}"
+
+            projected_chars = current_chars + len(piece) + (1 if current_parts else 0)
+            can_break_cleanly = bool(current_parts and sentence_ends(current_parts[-1]))
+            if current_parts and (
+                (can_break_cleanly and (projected_chars > soft_char_limit or current_token_count >= soft_token_limit))
+                or projected_chars > hard_char_limit
+            ):
+                flush()
+                piece = f"{speaker}: {token}" if speaker else token
+
+            if not current_parts:
+                current_speaker = speaker
+                current_start = segment_start
+
+            current_parts.append(piece)
+            current_chars += len(piece) + (1 if len(current_parts) > 1 else 0)
+            current_token_count += 1
+
+            if sentence_ends(token) and current_chars >= 300:
+                flush()
+
+    flush()
+    return paragraphs
+
+
+def build_markdown_content(segments: list[dict[str, Any]], title: str) -> str:
+    heading = collapse_whitespace(title).replace("-", " ") or "transcript"
+    lines = [f"# {heading}", ""]
+    paragraphs = build_reading_paragraph_items(segments)
+    if not paragraphs:
+        lines.append("No segments found.")
+        return "\n".join(lines).rstrip() + "\n"
+
+    current_minute_start: int | None = None
+    for paragraph in paragraphs:
+        paragraph_minute_start = minute_start(safe_segment_start(paragraph))
+        if paragraph_minute_start is not None and paragraph_minute_start != current_minute_start:
+            current_minute_start = paragraph_minute_start
+            lines.append(f"## {format_hhmmss(paragraph_minute_start)}")
+            lines.append("")
+        lines.append(str(paragraph["text"]))
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def assign_speakers_to_segments(
     segments: list[dict[str, Any]],
     diarization_segments: list[dict[str, Any]],
@@ -462,6 +614,7 @@ def build_job_response(job: Job) -> dict[str, Any]:
         payload["downloads"] = {
             "txt": f"/api/jobs/{job.job_id}/download/txt",
             "srt": f"/api/jobs/{job.job_id}/download/srt",
+            "markdown": f"/api/jobs/{job.job_id}/download/markdown",
         }
         payload["audio_url"] = f"/api/jobs/{job.job_id}/audio"
         payload["segments_url"] = f"/api/jobs/{job.job_id}/segments"
@@ -617,6 +770,7 @@ def build_live_state_response_locked() -> dict[str, Any]:
     if segment_count > 0:
         downloads["txt"] = "/api/live/download/txt"
         downloads["srt"] = "/api/live/download/srt"
+        downloads["markdown"] = "/api/live/download/markdown"
 
     audio_path = live_audio_meta.get("path")
     if audio_path:
@@ -2277,24 +2431,39 @@ def get_job(job_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/jobs/{job_id}/download/{kind}")
-def download_artifact(job_id: str, kind: str) -> FileResponse:
+def download_artifact(job_id: str, kind: str) -> Response:
     with jobs_lock:
         job = jobs.get(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         if job.status != "completed":
             raise HTTPException(status_code=409, detail="Job not completed")
+        original_filename = job.original_filename
         if kind == "txt":
             path = Path(job.txt_path) if job.txt_path else None
             media_type = "text/plain"
         elif kind == "srt":
             path = Path(job.srt_path) if job.srt_path else None
             media_type = "application/x-subrip"
+        elif kind == "markdown":
+            path = Path(job.segments_path) if job.segments_path else None
+            media_type = "text/markdown; charset=utf-8"
         else:
             raise HTTPException(status_code=404, detail="Unknown artifact type")
 
     if not path or not path.exists():
         raise HTTPException(status_code=404, detail="Artifact missing")
+
+    if kind == "markdown":
+        segments = json.loads(path.read_text(encoding="utf-8"))
+        title = Path(original_filename).stem
+        filename = f"{safe_token(title, 'transcript')}.md"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        return Response(
+            content=build_markdown_content(segments, title).encode("utf-8"),
+            media_type=media_type,
+            headers=headers,
+        )
 
     return FileResponse(path, media_type=media_type, filename=path.name)
 
@@ -2562,6 +2731,10 @@ def download_live_artifact(kind: str) -> Response:
         body = build_srt_content(segments)
         filename = f"live-{stamp}.transcript.srt"
         media_type = "application/x-subrip"
+    elif kind == "markdown":
+        body = build_markdown_content(segments, title=f"live {stamp} transcript")
+        filename = f"live-{stamp}.transcript.md"
+        media_type = "text/markdown; charset=utf-8"
     else:
         raise HTTPException(status_code=404, detail="Unknown live artifact type.")
 

@@ -938,6 +938,17 @@ const buildReadingParagraphItems = (segments) => {
       continue;
     }
 
+    const segmentStart = Number.isFinite(Number(segment.start)) ? Number(segment.start) : null;
+    if (
+      currentParts.length
+      && sentenceEnds(currentParts[currentParts.length - 1])
+      && getMinuteStart(segmentStart) !== null
+      && getMinuteStart(currentStart) !== null
+      && getMinuteStart(segmentStart) > getMinuteStart(currentStart)
+    ) {
+      flush();
+    }
+
     const speaker = collapseWhitespace(segment.speaker);
     const speakerChanged = currentSpeaker !== null && speaker !== currentSpeaker;
     if (speakerChanged) {
@@ -965,7 +976,7 @@ const buildReadingParagraphItems = (segments) => {
 
       if (!currentParts.length) {
         currentSpeaker = speaker || "";
-        currentStart = Number.isFinite(Number(segment.start)) ? Number(segment.start) : null;
+        currentStart = segmentStart;
       }
 
       currentParts.push(piece);
@@ -1318,6 +1329,10 @@ const setServerDownloads = (downloads) => {
     downloadSrt.href = downloads.srt;
     downloadSrt.classList.remove("hidden");
   }
+  if (downloads.markdown && downloadMarkdown) {
+    downloadMarkdown.href = downloads.markdown;
+    downloadMarkdown.classList.remove("hidden");
+  }
   if (downloads.audio && downloadAudio) {
     downloadAudio.href = downloads.audio;
     downloadAudio.classList.remove("hidden");
@@ -1330,7 +1345,9 @@ const setServerDownloads = (downloads) => {
     downloadDiagnostics.href = downloads.diagnostics;
     downloadDiagnostics.classList.remove("hidden");
   }
-  syncMarkdownDownload();
+  if (!downloads.markdown) {
+    syncMarkdownDownload();
+  }
   updateDownloadsMenu();
 };
 
